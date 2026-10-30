@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>비플리</title>
+<link rel="icon" href="../assets/icon/vifli.png">
+<style>
+:root{--bg:#f3f4f7;--card:#fff;--ink:#1d1d22;--sub:#6b6f7b;--line:#e2e4ea;--main:#ff5a1f;--main-d:#e24a12;--ok:#0a8f5a;--warn:#c62828;--yellow:#ffe34d}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",sans-serif;background:var(--bg);color:var(--ink);font-size:16px}
+header{background:#16161a;color:#fff;padding:12px 22px;display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+header h1{font-size:20px;margin:0;font-weight:800}
+header .ver{color:#999;font-size:13px;margin-left:auto}
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tab{padding:8px 16px;border-radius:9px;color:#bbb;font-weight:700;cursor:pointer;font-size:15px}
+.tab.on{background:#fff;color:#16161a}
+.tab.off{opacity:.45;cursor:default}
+.wrap{display:grid;grid-template-columns:minmax(0,1fr) 440px;gap:18px;padding:18px;max-width:1400px;margin:0 auto}
+.card{background:var(--card);border-radius:14px;padding:18px 20px;box-shadow:0 1px 4px rgba(0,0,0,.06);margin-bottom:14px}
+h2{font-size:17px;margin:0 0 12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+h2 .n{background:var(--ink);color:#fff;border-radius:50%;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;font-size:14px}
+.hint{color:var(--sub);font-size:14px;line-height:1.5}
+button{font-family:inherit;font-size:15px;cursor:pointer;border-radius:10px;border:0}
+.btn{background:#26262c;color:#fff;padding:10px 16px;font-weight:700}
+.btn.light{background:#eceef3;color:var(--ink)}
+.btn:disabled{opacity:.4;cursor:default}
+.drop{border:2px dashed #c9ccd6;border-radius:12px;padding:16px;text-align:center;color:var(--sub);margin-top:10px}
+.drop.over{border-color:var(--main);background:#fff4ee}
+.clip{display:grid;grid-template-columns:64px 1fr auto;gap:12px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:8px;margin-top:8px}
+.clip img{width:64px;height:84px;object-fit:cover;border-radius:8px;background:#000}
+.clip .nm{font-weight:700;font-size:15px;word-break:break-all}
+.clip .meta{color:var(--sub);font-size:13px;margin-top:2px}
+.clip .row{display:flex;gap:10px;align-items:center;margin-top:6px;flex-wrap:wrap;font-size:14px}
+.clip select{font-size:14px;padding:4px 6px;border-radius:7px;border:1px solid var(--line)}
+.clip .ctl{display:flex;flex-direction:column;gap:4px}
+.clip .ctl button{background:#eceef3;width:34px;height:28px}
+.star{cursor:pointer;font-size:14px;padding:3px 8px;border-radius:7px;background:#f3f3f3}
+.star.on{background:var(--yellow);font-weight:800}
+.badge{display:inline-block;background:#eef;color:#447;border-radius:6px;padding:1px 6px;font-size:12px;margin-left:4px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}
+label{font-size:14px;color:var(--sub);display:block;margin-bottom:4px}
+input[type=text],textarea{width:100%;padding:10px 12px;border:1px solid #d5d8e0;border-radius:9px;font-size:16px;font-family:inherit}
+.make{width:100%;background:var(--main);color:#fff;font-size:22px;font-weight:800;padding:18px;border-radius:14px;margin-top:4px}
+.make:hover{background:var(--main-d)}
+.make:disabled{background:#bbb}
+.right .card{position:sticky;top:12px}
+video{width:100%;max-height:560px;background:#000;border-radius:12px;display:block}
+.bar{height:12px;background:#eceef3;border-radius:8px;overflow:hidden;margin:12px 0 6px}
+.bar i{display:block;height:100%;width:0;background:var(--main);transition:width .3s}
+#status{font-weight:800;font-size:15px;min-height:22px}
+#log{background:#16161a;color:#d7d9e0;font-size:13px;line-height:1.5;border-radius:10px;padding:10px;height:150px;overflow:auto;white-space:pre-wrap;margin-top:8px}
+.thumbs{display:flex;gap:6px;margin-top:10px}
+.thumbs img{width:33%;border-radius:8px}
+.check{font-size:14px;line-height:1.7;margin-top:8px}
+.check .ok{color:var(--ok);font-weight:800}.check .bad{color:var(--warn);font-weight:800}
+.dl{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.dl button{padding:8px 10px;font-size:14px}
+.results a{display:block;margin-top:4px;font-weight:700;color:var(--ok)}
+.chosen{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.chip{display:flex;gap:8px;align-items:center;border:2px solid var(--main);background:#fff4ee;border-radius:12px;padding:6px 10px 6px 6px;font-weight:700}
+.chip img{width:40px;height:71px;object-fit:cover;border-radius:6px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;z-index:9;overflow:auto;padding:24px}
+.modal.on{display:block}
+.modal .box{background:#fff;border-radius:16px;max-width:1240px;margin:0 auto;padding:20px}
+.modal .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;position:sticky;top:-24px;background:#fff;padding:8px 0;z-index:2;gap:10px}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}
+.pcard{border:3px solid var(--line);border-radius:14px;padding:10px;cursor:pointer;background:#fff}
+.pcard.on{border-color:var(--main);background:#fff4ee}
+.pcard .imgs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-bottom:8px}
+.pcard .imgs img{width:100%;aspect-ratio:9/16;object-fit:cover;border-radius:6px;background:#222}
+.pcard .auto{aspect-ratio:9/5.3;display:flex;align-items:center;justify-content:center;font-size:40px;background:linear-gradient(135deg,#ffe34d,#ff5a1f);border-radius:8px;margin-bottom:8px;color:#fff;font-weight:900}
+.pcard b{font-size:17px}
+.mrow{display:grid;grid-template-columns:46px 1fr auto;gap:12px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:10px;margin-top:6px}
+.mrow.on{border-color:var(--main);background:#fff4ee}
+.mrow .play{width:42px;height:42px;border-radius:50%;background:var(--ink);color:#fff;font-size:16px}
+.mrow .t{font-weight:800;font-size:16px}
+.mrow .s{color:var(--sub);font-size:13px;margin-top:2px}
+.mbadge{display:inline-block;border-radius:6px;padding:1px 7px;font-size:12px;font-weight:800;margin-left:6px}
+.mbadge.need{background:#ffe3e3;color:#b00020}.mbadge.own{background:#e3f6ec;color:#0a6b43}.mbadge.free{background:#eef1f7;color:#556}
+.empty{color:var(--sub);text-align:center;padding:60px 0;background:#f6f6f8;border-radius:12px}
+.note{background:#fffbe0;border:1px solid #e8c900;border-radius:10px;padding:10px 12px;font-size:14px;line-height:1.6}
+.stop{display:none;background:#fff;border:2px solid var(--warn);color:var(--warn);border-radius:12px;padding:16px;margin:18px;font-weight:700;line-height:1.6}
+@media (max-width:1000px){.wrap{grid-template-columns:1fr}.right .card{position:static}}
+@media (max-width:560px){.wrap{padding:10px}.grid2{grid-template-columns:1fr}.card{padding:14px}header{padding:10px 14px;gap:10px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>비플리</h1>
+  <div class="tabs">
+    <div class="tab on" data-kind="food">맛집용</div>
+    <div class="tab" data-kind="studio">사진관용</div>
+    <div class="tab off" title="AI 마케팅은 지금은 설치판에서만 돼요">AI 마케팅용 <small>(설치판)</small></div>
+  </div>
+  <span class="ver">사이트판 · 영상은 이 기기 안에서만 만들어요</span>
+</header>
+<div class="stop" id="stop"></div>
+
+<div class="wrap" id="app">
+<div class="left">
+  <div class="card">
+    <h2><span class="n">1</span>찍은 영상·사진 넣기</h2>
+    <input type="file" id="files" multiple accept="video/mp4,video/quicktime,.mov,.mp4,image/*" style="display:none">
+    <button class="btn" id="pick">📂 찾기 (여러 개 고르기)</button>
+    <div class="drop" id="drop">또는 파일을 여기로 끌어다 놓으세요 · mp4 · mov · jpg · png</div>
+    <div id="clips"></div>
+    <div class="hint" id="clipHint" style="margin-top:8px"></div>
+    <div class="hint" style="margin-top:6px">🔒 넣은 영상·사진은 <b>인터넷에 올라가지 않아요.</b> 이 기기 안에서만 읽어서 영상을 만들어요.</div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">2</span>템플릿 고르기</h2>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="btn" id="openPicker">🖼 미리보기로 고르기</button>
+      <label style="margin:0;font-size:15px;color:var(--ink)"><input type="checkbox" id="multi"> 여러 템플릿 한 번에 만들기</label>
+      <label style="margin:0;font-size:15px;color:var(--ink)">글꼴 느낌 <select id="font" style="font-size:15px;padding:5px;border-radius:7px"></select></label>
+    </div>
+    <div class="chosen" id="chosen"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">3</span><span id="infoTitle">가게 정보</span> <span class="hint" style="font-weight:400">— 입력한 것만 자막에 나와요 (사실만 적어 주세요)</span></h2>
+    <div class="grid2">
+      <div><label id="l_area">지역</label><input type="text" id="i_area"></div>
+      <div><label id="l_name">가게 이름 *</label><input type="text" id="i_name"></div>
+      <div><label id="l_menu">대표 메뉴</label><input type="text" id="i_menu"></div>
+      <div><label id="l_price">가격</label><input type="text" id="i_price"></div>
+      <div><label id="l_loc">위치 한 줄</label><input type="text" id="i_loc"></div>
+      <div><label id="l_hook">한마디 (첫 화면)</label><input type="text" id="i_hook"></div>
+    </div>
+    <div style="margin-top:10px"><label>자막 더 넣기 (선택 · 한 줄에 하나 · 사실만, 최대 6줄)</label>
+      <textarea id="i_lines" rows="3" placeholder="예) 사장님이 직접 구워 주심&#10;예) 2층 단체석 있음"></textarea></div>
+    <div class="hint" style="margin-top:8px">[대괄호]로 감싼 글자는 노란색으로 강조돼요. 예) 지인이 데려간 [찐맛집]</div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">4</span>소리</h2>
+    <div class="grid2">
+      <div><label>찍은 영상 원래 소리 크기 <b id="volv">100%</b></label><input type="range" id="i_vol" min="0" max="150" value="100" style="width:100%"></div>
+      <div><label>배경음악 (상업용 무료 음원만)</label>
+        <button class="btn light" id="bgmPick">🎵 음악 고르기</button> <span id="bgmName" class="hint">없음</span>
+        <a href="#" id="bgmClear" class="hint" style="display:none;margin-left:6px">빼기</a></div>
+    </div>
+    <div id="bgmSet" style="display:none;margin-top:10px;border-top:1px solid var(--line);padding-top:10px">
+      <div class="grid2">
+        <div><label>음악 시작 지점 (분:초)</label>
+          <div style="display:flex;gap:6px"><input type="text" id="bgmStart" value="0:00" style="width:90px"><button class="btn light" id="bgmTry" style="padding:6px 10px">▶ 여기부터 듣기</button></div></div>
+        <div><label>음악 크기 <b id="bgmVolV">30%</b></label><input type="range" id="bgmVol" min="5" max="100" value="30" style="width:100%"></div>
+        <div><label>끝부분 서서히 작게 (초)</label><input type="text" id="bgmFade" value="2" style="width:90px"></div>
+        <div id="bgmCreditBox" style="display:none"><label>출처 표시 필요 — 영상 설명에 붙여 넣기</label><button class="btn light" id="bgmCredit" style="padding:6px 10px">📋 출처 문구 복사</button></div>
+      </div>
+    </div>
+  </div>
+
+  <button class="make" id="make">만들기</button>
+</div>
+
+<div class="right">
+  <div class="card">
+    <div id="player"><div class="empty">만든 영상이 여기에 나와요</div></div>
+    <div class="bar"><i id="bar"></i></div>
+    <div id="status"></div>
+    <div class="dl" id="dl"></div>
+    <div class="check" id="check"></div>
+    <div class="thumbs" id="thumbs"></div>
+    <button class="btn light" id="copyLog" style="margin-top:10px;padding:7px 12px;font-size:14px">📋 기록 복사</button>
+    <div id="log"></div>
+  </div>
+</div>
+</div>
+
+<div class="modal" id="musicBox"><div class="box" style="max-width:900px">
+  <div class="top"><h2 style="margin:0">배경음악 고르기 <span class="hint">— 상업적으로 쓸 수 있는 곡만</span></h2><button class="btn" id="musicClose">닫기</button></div>
+  <div class="note">🎵 <b>내 음악 파일 넣기</b>: 직접 가진 곡이나, 상업용 무료 음원 사이트(예: Pixabay 음악 — 'Content ID 등록' 표시가 없는 곡)에서 받은 mp3를 넣을 수 있어요. 파일은 이 기기 안에서만 쓰여요.
+    <div style="margin-top:8px"><input type="file" id="ownMusic" accept="audio/*,.mp3,.m4a,.wav" style="display:none"><button class="btn" id="ownMusicBtn">＋ 내 음악 파일 넣기</button></div></div>
+  <div id="mlist" style="margin-top:10px"></div>
+</div></div>
+
+<div class="modal" id="picker"><div class="box">
+  <div class="top"><h2 style="margin:0">템플릿 고르기 <span class="hint" id="pickHint"></span></h2><button class="btn" id="pickDone">고르기 끝</button></div>
+  <div class="pgrid" id="pgrid"></div>
+</div></div>
+
+<script src="./vendor/mp4box/dist/mp4box.all.min.js"></script>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
