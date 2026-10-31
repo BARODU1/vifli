@@ -1,11 +1,16 @@
 // 맛집 장면 엔진: 재료(분석 결과) + 가게 정보 + 템플릿 → 컷 목록·글자 장면·효과음 시간표
 // 숫자는 전부 config/standards.mjs 에서 가져옴.
 import { FOOD, TEXT } from "../../config/standards.mjs";
-import { windowScore } from "../score.mjs";
+import { windowScore, windowLightMotion } from "../score.mjs";
+import { snapShotsToBeats } from "../beats.mjs";
 
 const r2 = x => Math.round(x * 100) / 100;
 
-/** 대표 컷(첫 장면) 고르기: 사장님이 ★ 표시한 것 → 없으면 세로 영상 중 점수 가장 높은 구간 */
+/**
+ * 대표 컷(첫 장면) 고르기: 사장님이 ★ 표시한 영상 → 없으면 모든 영상에서 [사용자 2026-11-01] '가장 밝고 움직임이 큰 1초 구간'.
+ * 밝기·움직임을 후보끼리 비교해(표준점수) 더함. 가로 영상은 잘라 키우면 흐려져서 조금 덜 고름. 밝기를 안 잰 옛 분석이면 움직임만.
+ */
+export const HERO_WINDOW = 1.0;
 export function pickHero(clips, len, only = null) {
   const starred = only ?? clips.findIndex(c => c.hero);
   const hasVideo = clips.some(c => c.kind === "video");
@@ -13,9 +18,13 @@ export function pickHero(clips, len, only = null) {
   clips.forEach((c, i) => {
     if (starred >= 0 && i !== starred) return;
     if (c.kind === "photo") { if (starred >= 0 || !hasVideo) cands.push({ i, t: 0, s: 0 }); return; } // 사진은 영상이 없을 때만
-    for (let t = 0.3; t + len <= c.duration - 0.2; t += 0.2) cands.push({ i, t: r2(t), s: windowScore(c, t, len) + (c.landscape ? -3 : 0) }); // 가로 영상은 잘라 키우면 흐려져서 덜 고름
+    const win = Math.max(len * (c.speed || 1), HERO_WINDOW);
+    for (let t = 0.3; t + win <= c.duration - 0.2; t += 0.2) cands.push({ i, t: r2(t), ...windowLightMotion(c, t, win), land: c.landscape });
   });
   if (!cands.length) clips.forEach((c, i) => cands.push({ i, t: 0, s: 0 }));
+  const z = key => { const v = cands.map(x => x[key]).filter(x => x != null); const m = v.reduce((a, b) => a + b, 0) / (v.length || 1); const sd = Math.sqrt(v.reduce((a, b) => a + (b - m) ** 2, 0) / (v.length || 1)) || 1; return x => x[key] == null ? 0 : (x[key] - m) / sd; };
+  const zl = z("light"), zm = z("motion");
+  for (const x of cands) if (x.s == null) x.s = zl(x) + zm(x) - (x.land ? 1.5 : 0);
   return cands.sort((a, b) => b.s - a.s)[0];
 }
 
@@ -55,8 +64,10 @@ export function planFood(clips, info, tpl, opts = {}) {
 
   // 2) 나머지 컷 수 나누기 (긴 영상이 다 먹지 않게 12초로 자름, 사진은 1컷)
   const nShots = Math.max(1, Math.round((body - (shots.length ? FOOD.firstShot : 0)) / shotLen));
-  const weight = c => c.kind === "photo" ? 1.2 : Math.min(c.duration, 12);
-  const cap = c => c.kind === "photo" ? 1 : Math.max(1, Math.floor((c.duration - 0.4) / (shotLen + 0.15)));
+  // 속도(장면마다 0.5·1·1.5배): 컷 하나가 원본에서 쓰는 길이 = 컷 길이 × 속도
+  const sp = c => c.kind === "video" ? (c.speed || 1) : 1;
+  const weight = c => c.kind === "photo" ? 1.2 : Math.min(c.duration / sp(c), 12);
+  const cap = c => c.kind === "photo" ? 1 : Math.max(1, Math.floor((c.duration - 0.4) / (shotLen * sp(c) + 0.15)));
   const sum = clips.reduce((a, c) => a + weight(c), 0);
   const n = clips.map(c => Math.min(cap(c), Math.max(1, Math.round(nShots * weight(c) / sum))));
   // 합을 nShots 에 맞춤
@@ -71,7 +82,7 @@ export function planFood(clips, info, tpl, opts = {}) {
   // 3) 재료 순서대로, 한 재료 안은 시간 순 (같은 장면을 박자마다 끊는 점프컷)
   clips.forEach((c, i) => {
     if (c.kind === "photo" && i === hero.i && shots.length) return; // 대표 컷으로 이미 쓴 사진
-    const ws = pickWindows(c, n[i], shotLen, i === hero.i && shots.length ? hero.t : null);
+    const ws = pickWindows(c, n[i], shotLen * sp(c), i === hero.i && shots.length ? hero.t : null);
     for (const t of ws) shots.push({ clip: i, start: t, dur: shotLen, role: "shot" });
   });
   // 4) 마지막 정보 카드: 대표 컷 장면을 어둡게
@@ -83,15 +94,19 @@ export function planFood(clips, info, tpl, opts = {}) {
   let t = 0;
   for (const s of shots) {
     const c = clips[s.clip];
-    if (c.kind === "video" && s.role !== "end") s.dur = Math.min(s.dur, r2(c.duration - s.start)); // 짧은 재료는 있는 만큼만
+    s.speed = s.role === "end" ? 1 : sp(c);
+    if (c.kind === "video" && s.role !== "end") s.dur = Math.min(s.dur, r2((c.duration - s.start) / s.speed)); // 짧은 재료는 있는 만큼만
     s.at = r2(t); t += s.dur;
     s.file = c.file; s.kind = c.kind; s.fit = fitOf(c); s.hasAudio = c.hasAudio;
   }
-  const duration = r2(t);
+  // 박자 맞춤(배경음악 박자를 줬을 때): 컷 바뀌는 시점을 가까운 박자로
+  const beatMoved = snapShotsToBeats(shots, clips, opts.beats);
+  const last = shots[shots.length - 1];
+  const duration = r2(last.at + last.dur);
   const endAt = shots[shots.length - 1].at;
 
   const { texts, sfx } = placeTexts(clips, shots, info, tpl, endAt, duration);
-  return { template: tpl.id, duration, shots, texts, sfx, hero: { clip: hero.i, start: hero.t } };
+  return { template: tpl.id, duration, shots, texts, sfx, hero: { clip: hero.i, start: hero.t }, beatMoved };
 }
 
 /** 글자 장면 깔기 + 효과음 시간표 (맛집·사진관 공통) */
@@ -104,7 +119,7 @@ export function placeTexts(clips, shots, info, tpl, endAt, duration) {
   let beats = expandBeats(tpl.beats(info), info);
   const texts = [], fixed = [];
   let firstEnd = 0;
-  if (info.hook) {
+  if (info.hook && !tpl.quietHook) { // '감성 한 줄'처럼 글자를 아끼는 템플릿은 한마디를 작은 한 줄로 따로 씀
     const own = beats.find(b => b.kind === "hook" && b.lines.includes(info.hook));
     firstEnd = r2(Math.min(endAt, Math.max(TEXT.firstTitle.until, own?.dur ?? TEXT.firstTitle.dur)));
     texts.push({ kind: "hook", first: true, start: 0, end: firstEnd, lines: [info.hook] });

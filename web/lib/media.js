@@ -136,7 +136,7 @@ export async function openMedia(file) {
 /** 설치판 analyzeClip 과 같은 값: 0.1초마다 움직임(32x56 밝기 차이), 0.5초마다 색 진하기 */
 export async function analyze(m, id) {
   const info = { file: id, name: m.file.name, kind: m.kind, duration: m.kind === "photo" ? 0 : m.duration, width: m.width, height: m.height,
-    landscape: m.width > m.height, hasAudio: m.hasAudio, motion: [], color: [] };
+    landscape: m.width > m.height, hasAudio: m.hasAudio, motion: [], color: [], light: [] };
   // ffmpeg 의 축소(scale)는 넓은 범위를 고르게 섞음 → 10배 큰 그림에 그린 뒤 10x10 칸씩 평균 내서 맞춤
   const CW = 32, CH = 56, B = 10, c = new OffscreenCanvas(CW * B, CH * B), g = c.getContext("2d", { willReadFrequently: true });
   g.imageSmoothingQuality = "high";
@@ -158,6 +158,7 @@ export async function analyze(m, id) {
     const d = grab(src);
     if (last) { let s = 0; for (let k = 0; k < d.length; k += 4) s += Math.abs(lum(d, k) - lum(last, k)); info.motion.push({ t: i / 10, v: s / (CW * CH) }); }
     if (i % 5 === 0) info.color.push({ t: i / 10, v: satOf(d, 0, d.length, 4) });
+    { let s = 0; for (let k = 0; k < d.length; k += 4) s += lum(d, k); info.light.push({ t: i / 10, v: s / (CW * CH) }); } // 밝기 (첫 장면 고르기)
     last = d;
   }, { half: 0.05 });
   return info;

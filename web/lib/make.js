@@ -6,12 +6,14 @@ import { FOOD_TEMPLATES, DEFAULT_FOOD_TEMPLATE, autoFoodTemplate } from "../../e
 import { planStudio } from "../../engine/studio/plan.mjs";
 import { STUDIO_TEMPLATES, DEFAULT_STUDIO_TEMPLATE, autoStudioTemplate } from "../../engine/templates/studio.mjs";
 import { FONTS, setFontBytes } from "../../engine/fonts.mjs";
-import { buildAss } from "../../engine/ass.mjs";
+import { buildAss, textWidth } from "../../engine/ass.mjs";
 import { cleanInfo, thumbAss, thumbPicks, thumbLines, captureTimes } from "../../engine/jobShared.mjs";
 import { CANVAS, AUDIO, LANDSCAPE, STUDIO, SAFE, TEXT } from "../../config/standards.mjs";
 import { APP_NAME } from "../../config/app.mjs";
 import { decodeAt } from "./media.js";
-import { getFF, fontBytes, run, writeFile, readFile, rm, mkdir, mountFiles, renderSubs, lowestInk, highestInk } from "./ff.js";
+import { detectBeats } from "../../engine/beats.mjs";
+import { MOTIONS, TRANSITIONS, PHOTO_MOTIONS, photoMotionOf, motionAt, withMotion, applyTransition, drawSticker, stickerBox, drawSplit, drawSwipe } from "./fx.js";
+import { getFF, fontBytes, run, writeFile, readFile, rm, mkdir, mountFiles, renderSubs, lowestInk, highestInk, resetFF, freshFF, isWasmCrash } from "./ff.js";
 
 export const KINDS = {
   food: { label: "맛집", templates: FOOD_TEMPLATES, def: DEFAULT_FOOD_TEMPLATE, auto: autoFoodTemplate, plan: planFood, nameLabel: "가게 이름" },
@@ -103,22 +105,47 @@ function glDimmer(bright, sat, cover) {
 function autoPick(K, kind, clips, info) {
   const key = kind + ":" + clips.map(c => c.name).join("|");
   let mem = {}; try { mem = JSON.parse(localStorage.getItem("vifli.auto") || "{}"); } catch {}
-  const tid = K.auto(clips, info, mem[key] || []);
+  const tid = K.auto(clips, info, mem[key] || [], { site: true });
   mem[key] = [...(mem[key] || []), tid].slice(-6);
   try { localStorage.setItem("vifli.auto", JSON.stringify(mem)); } catch {}
   return tid;
 }
 
+// 글자 효과음 3종 — 비플리가 직접 합성한 소리 (assets/sfx/출처.txt)
+export const TEXT_SFX = { click: { name: "딸깍", volume: 0.6 }, bloop: { name: "뾰롱", volume: 0.5 }, sizzle: { name: "지글", volume: 0.6 } };
+
+/** 배경음악 박자: 시작 지점부터 sec 초를 모노 11025Hz 로 풀어 박자 찾기 */
+async function bgmBeats(bgm, sec) {
+  const fname = "bgm." + extOf(bgm.name || bgm.file.name || "a.mp3");
+  await mountFiles([new File([bgm.file], fname)]);
+  await run(["-ss", String(Math.max(0, +bgm.start || 0)), "-t", String(sec), "-i", `/src/${fname}`, "-ac", "1", "-ar", "11025", "-f", "f32le", "-y", "/job/beat.f32"]);
+  const b = await readFile("/job/beat.f32"); await rm("/job/beat.f32");
+  return detectBeats(new Float32Array(b.buffer, b.byteOffset, Math.floor(b.byteLength / 4)), 11025);
+}
+
 const extOf = n => (/\.(\w+)$/.exec(n)?.[1] || "bin").toLowerCase();
-let sfxReady = false;
+let sfxFor = null; // 효과음을 넣어 둔 ffmpeg (새로 켜면 다시 넣음)
 
 /**
- * @param job { kind, clips:[{m:openMedia 결과, a:analyze 결과, hero, fit, caption, role}], info, template, font, textStyle, accent, origVolume,
+ * @param job { kind, clips:[{m:openMedia 결과, a:analyze 결과, hero, fit, caption, role, speed, sticker:{type,pos}}], info, template, font, textStyle, accent, origVolume,
+ *              enter(글자 등장), motion(컷 움직임), photoMotion(사진 컷 움직임, 기본 auto), transition(장면 전환), textSfx(글자 효과음), beatSync(박자 맞춤), splitCount, linePos,
  *              bgm?:{ file:File|Blob, name, volume, start, fade, source, credit } }
  * @param log (msg, ratio) => void
  * @returns { name, video:Blob, thumbs:[{name,blob}], captures:{name,blob}, credits:{name,text}, check, plan, seconds }
  */
 export async function makeVideo(job, log = () => {}) {
+  // ffmpeg.wasm 은 여러 번 쓰면 안쪽 메모리가 쌓여 멈출 수 있음 → 3개마다 새로 켜고, 멈추면 새로 켜서 한 번 더
+  await freshFF(3);
+  try { return await makeOnce(job, log); }
+  catch (e) {
+    if (!isWasmCrash(e)) throw e;
+    log("영상 부품이 멈춰서 다시 켜고 한 번 더 만들어요", 0.02);
+    await resetFF();
+    return await makeOnce(job, log);
+  }
+}
+
+async function makeOnce(job, log) {
   const t0 = performance.now();
   const K = KINDS[job.kind] || KINDS.food;
   const info = cleanInfo(job.info);
@@ -127,15 +154,32 @@ export async function makeVideo(job, log = () => {}) {
   log("준비 중 (처음 한 번은 부품을 받아요)", 0.01);
   await prepare();
 
-  const clips = job.clips.map(c => ({ ...c.a, hero: !!c.hero, fit: c.fit || "auto", caption: c.caption || "auto", role: c.role || "space" }));
+  const clips = job.clips.map(c => ({ ...c.a, hero: !!c.hero, fit: c.fit || "auto", caption: c.caption || "auto", role: c.role || "space", speed: [0.5, 1.5].includes(+c.speed) ? +c.speed : 1 }));
   let tid = job.template;
   if (!tid || tid === "auto") { tid = autoPick(K, job.kind || "food", clips, info); log(`자동으로 고른 템플릿: ${K.templates[tid].name}`, 0.03); }
   const tpl = K.templates[tid] || K.templates[K.def];
   const font = job.font && job.font !== "template" && FONTS[job.font] ? job.font : null;
   const vol = (job.origVolume ?? 1) * (tpl.volume ?? 1);
-  const plan = K.plan(clips, info, tpl);
-  const ass = buildAss(plan, tpl, { font, textStyle: job.textStyle, accent: job.accent });
-  log(`장면 계획: ${plan.shots.length}컷, ${plan.duration}초, 첫 장면 ${clips[plan.hero.clip].name}`, 0.04);
+  await mkdir("/job"); await mkdir("/sfx");
+  // 박자 맞춤: 배경음악을 고르고 켰을 때만 — 음악 시작 지점부터 박자를 재서 컷 시점을 맞춤
+  let beat = null;
+  if (job.beatSync && job.bgm?.file) {
+    log("배경음악 박자 재는 중", 0.03);
+    beat = await bgmBeats(job.bgm, (tpl.length || 20) + 15).catch(() => null);
+    log(beat?.beats.length ? `박자: ${beat.bpm} BPM (뚜렷함 ${beat.strength})` : "박자가 뚜렷하지 않아 컷 시점은 그대로 둬요", 0.04);
+  }
+  const plan = K.plan(clips, info, tpl, { beats: beat?.beats, splitCount: job.splitCount });
+  // 글자 효과음(기본 끔): 켜면 글자가 나올 때마다 고른 소리 하나 (같은 때 겹치면 한 번)
+  plan.sfx = TEXT_SFX[job.textSfx] ? plan.texts.filter(x => ["hook", "caption", "end"].includes(x.kind)).map(x => x.start).sort((a, b) => a - b)
+    .filter((t, i, a) => !i || t - a[i - 1] > 0.15).map(t => ({ t, type: job.textSfx })) : [];
+  // '감성 한 줄'을 위·가운데에 두면 결과 사진(액자) 속 얼굴에 겹침 → 결과 사진이 나오기 전에 그 줄을 끝냄 (아래는 사진 밖이라 그대로)
+  if (tpl.linePosY && job.linePos && job.linePos !== "bottom") {
+    const firstFrame = plan.shots.find(s => /^frame/.test(s.fit) || s.role === "result" || s.role === "split" || s.role === "swipe");
+    for (const t of plan.texts) if (t.kind === "title" && firstFrame && t.end > firstFrame.at) t.end = firstFrame.at;
+    plan.texts = plan.texts.filter(t => t.kind !== "title" || t.end - t.start > 0.5);
+  }
+  const ass = buildAss(plan, tpl, { font, textStyle: job.textStyle, accent: job.accent, enter: job.enter, linePos: job.linePos });
+  log(`장면 계획: ${plan.shots.length}컷, ${plan.duration}초, 첫 장면 ${clips[plan.hero.clip].name}${plan.beatMoved ? ` · 박자에 맞춘 컷 ${plan.beatMoved}곳` : ""}`, 0.04);
   const name = fileName(info.name, tpl.name, font && FONTS[font].label);
 
   // 1) 자막 그림 (설치판과 같은 libass)
@@ -171,27 +215,57 @@ export async function makeVideo(job, log = () => {}) {
     n++;
   };
   const busy = () => enc.encodeQueueSize > 6;
+  // 효과: 컷 움직임(기본 끔)·장면 전환(기본 없음)·스티커(재료마다). 정보 카드·분할·보정 전후 장면에는 컷 움직임을 안 씀
+  const photoMotion = PHOTO_MOTIONS[job.photoMotion] ? job.photoMotion : "auto"; let photoN = 0;
+  const motion = MOTIONS[job.motion] ? job.motion : "none", trans = TRANSITIONS[job.transition] ? job.transition : "none";
+  const prev = new OffscreenCanvas(W, H), gp = prev.getContext("2d");
+  const stickerSeen = new Set();
   for (let si = 0; si < plan.shots.length; si++) {
     const s = plan.shots[si], c = job.clips[s.clip], m = c.m, frames = Math.round(s.dur * FPS);
     const dim = s.role === "end" && !/^frame/.test(s.fit);
     const pick = picks.indexOf(s), mid = Math.round(s.dur / 2 * FPS);
+    // 컷 움직임(영상 컷, 기본 끔)을 켰으면 모든 컷에, 아니면 사진 컷에만 '사진 컷 움직임'(기본 번갈아)
+    const still = !["end", "split", "swipe"].includes(s.role);
+    const isPhoto = m.kind === "photo";
+    const kindHere = motion !== "none" ? motion : isPhoto ? photoMotionOf(photoMotion, photoN) : "none";
+    if (isPhoto && still && motion === "none") photoN++;
+    const moves = still && kindHere !== "none";
+    const mv = k => moves ? motionAt(kindHere, k / Math.max(1, frames - 1), si, motion === "none") : [1, 0];
+    // 스티커는 그 재료가 처음 나올 때만 0.2초 동안 나타나고(한 번만), 같은 재료의 다음 컷에선 그대로 보임
+    const stickerFresh = !stickerSeen.has(s.clip); stickerSeen.add(s.clip);
     log(`장면 ${si + 1}/${plan.shots.length} 굽는 중`, 0.15 + 0.6 * n / totalF);
-    if (m.kind === "photo") {
+    const fin = k => finishFx(si, s, k, frames, pick, mid, stickerFresh);
+    if (s.role === "split") {
+      const imgs = s.group.map(i => job.clips[i].m).filter(x => x.kind === "photo");
+      for (let k = 0; k < frames; k++) { drawSplit(g, imgs, k / FPS, s.step); fin(k); while (busy()) await sleep(2); }
+    } else if (s.role === "swipe") {
+      const [a, b] = s.pair.map(i => job.clips[i].m);
+      for (let k = 0; k < frames; k++) { drawSwipe(g, a, b, k / FPS, s.hold, s.swipe, drawFit); fin(k); while (busy()) await sleep(2); }
+    } else if (m.kind === "photo") {
       drawFit(gb, m.img, m.width, m.height, s.fit); if (dim) dimOn(gb, base);
       for (let k = 0; k < frames; k++) {
-        g.drawImage(base, 0, 0);
-        if (pick >= 0 && k === mid) { const t = new OffscreenCanvas(W, H); t.getContext("2d").drawImage(main, 0, 0); thumbBase.set(pick, t); }
-        put(); while (busy()) await sleep(2);
+        g.fillStyle = "#000"; g.fillRect(0, 0, W, H); withMotion(g, mv(k), () => g.drawImage(base, 0, 0));
+        fin(k); while (busy()) await sleep(2);
       }
     } else {
-      const targets = Array.from({ length: frames }, (_, k) => s.start + k / FPS);
+      // 속도: 0.5배면 원본을 반 속도로(같은 장을 두 번), 1.5배면 건너뛰며
+      const sp = s.speed || 1, targets = Array.from({ length: frames }, (_, k) => s.start + k * sp / FPS);
       await decodeAt(m, targets, (src, k) => {
-        drawFit(g, src, m.width, m.height, s.fit); if (dim) dimOn(g, main);
-        if (pick >= 0 && k === mid) { const t = new OffscreenCanvas(W, H); t.getContext("2d").drawImage(main, 0, 0); thumbBase.set(pick, t); }
-        put();
+        if (moves) { g.fillStyle = "#000"; g.fillRect(0, 0, W, H); }
+        withMotion(g, mv(k), () => drawFit(g, src, m.width, m.height, s.fit)); if (dim) dimOn(g, main);
+        fin(k);
       }, { tooBusy: busy });
     }
     if (encErr) throw new Error("영상 굽기 중 문제가 생겼어요: " + encErr.message);
+  }
+  // 컷 하나의 k번째 장을 마무리: 전환 → 스티커 → (앞 컷 마지막 장 저장) → 썸네일 후보 → 자막 얹고 굽기
+  function finishFx(si, s, k, frames, pick, mid, fresh) {
+    if (si > 0 && trans !== "none") applyTransition(g, main, prev, trans, k);
+    const st = job.clips[s.clip].sticker;
+    if (st?.type && st.type !== "none" && s.role !== "end") drawSticker(g, st.type, st.pos, fresh && k < 6 ? (k + 1) / 6 : 1);
+    if (k === frames - 1) { gp.clearRect(0, 0, W, H); gp.drawImage(main, 0, 0); }
+    if (pick >= 0 && k === mid) { const t = new OffscreenCanvas(W, H); t.getContext("2d").drawImage(main, 0, 0); thumbBase.set(pick, t); }
+    put();
   }
   await enc.flush(); enc.close();
   if (encErr) throw new Error("영상 굽기 중 문제가 생겼어요: " + encErr.message);
@@ -200,18 +274,18 @@ export async function makeVideo(job, log = () => {}) {
   log("영상 그림 완성, 소리 만드는 중", 0.76);
 
   // 3) 소리: 설치판 renderShot·renderPlan 과 같은 필터 (컷 소리 → 효과음·배경음악 → -14 LUFS 2단계 → 리미터)
-  await mkdir("/job"); await mkdir("/sfx");
   const names = job.clips.map((c, i) => `c${i}.${extOf(c.m.file.name)}`);
   const files = job.clips.map((c, i) => new File([c.m.file], names[i]));
   if (job.bgm?.file) files.push(new File([job.bgm.file], "bgm." + extOf(job.bgm.name || job.bgm.file.name || "a.mp3")));
   await mountFiles(files);
-  if (!sfxReady) { for (const k of ["pop", "whoosh", "ding"]) await writeFile(`/sfx/${k}.wav`, new Uint8Array(await (await fetch(new URL(`../../assets/sfx/${k}.wav`, import.meta.url))).arrayBuffer())); sfxReady = true; }
+  if (sfxFor !== await getFF()) { for (const k of ["pop", "whoosh", "ding", ...Object.keys(TEXT_SFX)]) await writeFile(`/sfx/${k}.wav`, new Uint8Array(await (await fetch(new URL(`../../assets/sfx/${k}.wav`, import.meta.url))).arrayBuffer())); sfxFor = await getFF(); }
   const inputs = [], al = [];
   plan.shots.forEach((s, i) => {
     const has = s.kind === "video" && s.hasAudio !== false, fade = Math.min(0.03, s.dur / 4);
-    if (has) inputs.push("-ss", String(s.start), "-t", String(s.dur + 0.1), "-i", `/src/${names[s.clip]}`);
+    const sp = s.speed || 1; // 속도를 바꾼 장면은 소리도 같은 빠르기 (음 높이는 그대로)
+    if (has) inputs.push("-ss", String(s.start), "-t", String(s.dur * sp + 0.1), "-i", `/src/${names[s.clip]}`);
     else inputs.push("-f", "lavfi", "-t", String(s.dur + 0.1), "-i", "anullsrc=r=48000:cl=stereo");
-    al.push(`[${i}:a]asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=s16:channel_layouts=stereo,volume=${has ? vol : 0},afade=t=in:d=${fade},apad,afade=t=out:st=${(s.dur - fade).toFixed(3)}:d=${fade},atrim=0:${s.dur}[p${i}]`);
+    al.push(`[${i}:a]asetpts=PTS-STARTPTS,aresample=48000,${has && sp !== 1 ? `atempo=${sp},` : ""}aformat=sample_fmts=s16:channel_layouts=stereo,volume=${has ? vol : 0},afade=t=in:d=${fade},apad,afade=t=out:st=${(s.dur - fade).toFixed(3)}:d=${fade},atrim=0:${s.dur}[p${i}]`);
   });
   al.push(plan.shots.map((_, i) => `[p${i}]`).join("") + `concat=n=${plan.shots.length}:v=0:a=1[a0]`);
   const mixIn = ["[a0]"];
@@ -219,7 +293,7 @@ export async function makeVideo(job, log = () => {}) {
   plan.sfx.forEach((e, k) => {
     inputs.push("-i", `/sfx/${e.type}.wav`);
     const ms = Math.round(e.t * 1000);
-    al.push(`[${idx++}:a]adelay=${ms}|${ms},volume=${e.type === "pop" ? 0.5 : 0.7}[s${k}]`); mixIn.push(`[s${k}]`);
+    al.push(`[${idx++}:a]adelay=${ms}|${ms},volume=${TEXT_SFX[e.type]?.volume ?? (e.type === "pop" ? 0.5 : 0.7)}[s${k}]`); mixIn.push(`[s${k}]`);
   });
   if (job.bgm?.file) {
     inputs.push("-stream_loop", "-1", "-i", `/src/${files[files.length - 1].name}`);
@@ -240,6 +314,16 @@ export async function makeVideo(job, log = () => {}) {
   log("소리 맞추는 중", 0.84);
   await run([...inputs, "-filter_complex", [...al, `[mix]${loud},alimiter=limit=0.7:level=false,aresample=48000,aformat=channel_layouts=stereo[a]`].join(";"), "-map", "[a]",
     "-ac", "2", "-c:a", "pcm_s16le", "-ar", "48000", "-t", String(plan.duration), "-y", "/job/a.wav"]);
+  // 소리 있는 곳이 짧으면(사진이 많고 효과음만 몇 번) 음량 맞춤이 끝까지 못 올림 → 다시 재서 0.5 LU 넘게 다르면 한 번 더 맞춤
+  try {
+    const m = await run(["-nostats", "-i", "/job/a.wav", "-af", "ebur128", "-f", "null", "-"]);
+    const I = +((m.slice(m.lastIndexOf("Summary:")).match(/I:\s+(-?[\d.]+) LUFS/) || [])[1]);
+    if (isFinite(I) && I > -60 && Math.abs(I - AUDIO.targetLufs) > 0.5) {
+      log(`소리 크기 한 번 더 맞추는 중 (${I} → ${AUDIO.targetLufs} LUFS)`, 0.87);
+      await run(["-i", "/job/a.wav", "-af", `volume=${(AUDIO.targetLufs - I).toFixed(2)}dB,alimiter=limit=0.7:level=false`, "-c:a", "pcm_s16le", "-y", "/job/a2.wav"]);
+      await rm("/job/a.wav"); await writeFile("/job/a.wav", await readFile("/job/a2.wav")); await rm("/job/a2.wav");
+    }
+  } catch { /* 다시 재기 실패하면 그대로 */ }
 
   // 4) 합치기: 영상은 그대로 복사, 소리만 AAC
   log("영상·소리 합치는 중", 0.9);
@@ -256,6 +340,20 @@ export async function makeVideo(job, log = () => {}) {
   const sum = e.slice(e.lastIndexOf("Summary:"));
   const gnum = re => { const mm = sum.match(re); return mm ? +mm[1] : null; };
   const dm = /Duration: (\d+):(\d+):([\d.]+)/.exec(e);
+  // 스티커도 위 15%·아래 1/5 밖에 있는지
+  const stickerSafe = job.clips.every(c => !c.sticker?.type || c.sticker.type === "none" || (b => b.top >= SAFE.topForbiddenTo && b.bottom <= SAFE.bottomForbiddenFrom)(stickerBox(c.sticker.pos)));
+  // 스티커가 같은 때 나오는 자막 글자를 가리는지 (글자 상자와 스티커 칸이 겹치면 셈)
+  let stickerOverText = 0;
+  plan.shots.forEach(s => {
+    const st = job.clips[s.clip].sticker; if (!st?.type || st.type === "none" || s.role === "end") return;
+    const b = stickerBox(st.pos);
+    for (const t of ass.boxes) {
+      if (t.end <= s.at || t.start >= s.at + s.dur) continue;
+      const half = textWidth(t.text, t.size) / 2;
+      if (b.left < W / 2 + half && b.right > W / 2 - half && b.top < t.bottom && b.bottom > t.top) { stickerOverText++; break; }
+    }
+  });
+  const usedSfxKind = TEXT_SFX[job.textSfx] ? job.textSfx : "off";
   const lufs = gnum(/I:\s+(-?[\d.]+) LUFS/), bottom = lowestInk([...subs.bitmaps.values()]), topInk = highestInk([...subs.bitmaps.values()]);
   // 글자 크기: 장면 자막(한 줄, 넓으면 줄어든 크기)이 60px 밑이면 경고
   const capSizes = ass.boxes.filter(b => b.kind === "caption").map(b => b.size), capMin = capSizes.length ? Math.min(...capSizes) : null;
@@ -263,6 +361,7 @@ export async function makeVideo(job, log = () => {}) {
   const check = { duration: dm ? Math.round((+dm[1] * 3600 + +dm[2] * 60 + +dm[3]) * 100) / 100 : null, frames: n, plannedShots: plan.shots.length,
     lufs, peak: gnum(/Peak:\s+(-?[\d.]+) dBFS/), lufsOk: lufs != null && Math.abs(lufs - AUDIO.targetLufs) <= AUDIO.lufsTolerance,
     textBottomPx: bottom, bottomFifthFrom: SAFE.bottomForbiddenFrom, bottomFifthOk: bottom == null || bottom <= SAFE.bottomForbiddenFrom,
+    stickersOk: stickerSafe, stickerOverText, effects: { motion, photoMotion, transition: trans, enter: job.enter || "pop", textSfx: usedSfxKind, beat: beat ? { bpm: beat.bpm, moved: plan.beatMoved || 0 } : null, speeds: [...new Set(plan.shots.map(s => s.speed || 1))], stickers: job.clips.filter(c => c.sticker?.type && c.sticker.type !== "none").length },
     textTopPx: topInk, topFrom: SAFE.topForbiddenTo, topOk: topInk == null || topInk >= SAFE.topForbiddenTo,
     captionMinPx: capMin, captionWarnBelow: TEXT.captionRange.warnBelow, captionSizeOk: capMin == null || capMin >= TEXT.captionRange.warnBelow,
     firstTitle: first ? { end: first.end, sizePx: Math.min(...firstBoxes.map(b => b.size)), lines: firstBoxes.map(b => b.text) } : null };
@@ -279,7 +378,8 @@ export async function makeVideo(job, log = () => {}) {
   }
   const captures = { name: `${name}_장면6.jpg`, blob: await cap.convertToBlob({ type: "image/jpeg", quality: 0.9 }) };
 
-  const credits = [`${APP_NAME} — ${name}.mp4`, `효과음: ${APP_NAME}가 직접 합성한 소리(외부 음원 아님)`,
+  const usedSfx = [...new Set(plan.sfx.map(e => e.type))];
+  const credits = [`${APP_NAME} — ${name}.mp4`, usedSfx.length ? `효과음: ${usedSfx.map(k => TEXT_SFX[k]?.name || k).join(", ")} — ${APP_NAME}가 ffmpeg 소리 합성으로 직접 만든 소리(외부 음원 아님, 상업용 사용 가능)` : "효과음: 없음",
     job.bgm?.file ? `배경음악: ${job.bgm.name} — 출처: ${job.bgm.source || "사용자가 넣은 음악"}` + (job.bgm.start ? ` · ${job.bgm.start}초부터` : "") + (job.bgm.credit ? `\n영상 설명에 붙여 넣을 출처 문구: ${job.bgm.credit}` : "") : "배경음악: 없음(찍은 영상 원래 소리)",
     `글꼴: Pretendard 등 (SIL OFL 1.1)`, `${K.label} 정보(입력값): ${JSON.stringify(info)}`, `만든 곳: ${APP_NAME} 사이트판 (영상은 이 기기 안에서만 처리, 어디에도 올리지 않음)`].join("\n") + "\n";
   const seconds = Math.round((performance.now() - t0) / 100) / 10;

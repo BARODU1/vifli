@@ -27,6 +27,19 @@ export async function getFF() {
   return loading;
 }
 
+/**
+ * ffmpeg 를 껐다가 새로 켬. ffmpeg.wasm 은 실행을 거듭하면 안쪽 메모리가 쌓여(시험에서 영상 6개째) 멈출 수 있어서,
+ * 영상 몇 개마다 또는 멈췄을 때 새로 켬 (글꼴은 브라우저에 받아 둔 것을 다시 씀)
+ */
+export async function resetFF() {
+  const f = ff; ff = null; loading = null; mounted = false; uses = 0;
+  try { f?.terminate(); } catch {}
+}
+let uses = 0;
+/** 영상 하나 만들 때마다 부름 — n개마다 새로 켬 */
+export async function freshFF(every = 3) { if (++uses > every) await resetFF(), uses = 1; }
+export const isWasmCrash = e => /memory access out of bounds|RuntimeError|unreachable|Aborted|called after terminate/i.test(String(e?.message ?? e) + " " + String(e?.reason ?? ""));
+
 /** ffmpeg 실행. 실패하면 마지막 기록과 함께 오류. 돌려주는 값: 이번 실행의 기록 */
 export async function run(args) {
   const f = await getFF();
@@ -64,11 +77,15 @@ export async function renderSubs(assText, duration, fps = 30, tag = "s") {
     const p = line.slice(9).split(","), s = tsec(p[1].trim()), e = tsec(p[2].trim()), text = p.slice(9).join(",");
     const anim = [];
     for (const m of text.matchAll(/\\fad\((\d+),(\d+)\)/g)) { anim.push([s, s + +m[1] / 1000], [e - +m[2] / 1000, e]); }
+    // \t 는 시작부터 마지막 \t 이 끝날 때까지 통째로 '움직이는 중' (한 글자씩 타자는 글자마다 \t 가 있어 사이 장면도 매번 그려야 함)
+    let tEnd = null;
     for (const m of text.matchAll(/\\t\(([^)]*)\)/g)) {
       const a = m[1].split(","); const n = a.length >= 3 && /^\s*-?\d+\s*$/.test(a[0]) && /^\s*-?\d+\s*$/.test(a[1]);
-      anim.push(n ? [s + +a[0] / 1000, s + +a[1] / 1000] : [s, e]);
+      tEnd = Math.max(tEnd ?? 0, n ? s + +a[1] / 1000 : e);
     }
-    if (/\\(move|k|K|kf)\b/.test(text)) anim.push([s, e]);
+    if (tEnd != null) anim.push([s, tEnd]);
+    for (const m of text.matchAll(/\\move\(([^)]*)\)/g)) { const a = m[1].split(",").map(Number); anim.push(a.length >= 6 ? [s + a[4] / 1000, s + a[5] / 1000] : [s, e]); } // 밀려 올라오기는 그 시간만
+    if (/\\(k|K|kf)\b/.test(text)) anim.push([s, e]);
     ev.push({ s, e, anim });
   }
   const N = Math.round(duration * fps), keyOf = new Array(N).fill(null), rep = new Map();

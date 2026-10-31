@@ -182,6 +182,36 @@ export const FOOD_TEMPLATES = {
       { kind: "caption", field: "price", text: I.price, dur: 3.0 },
       { kind: "caption", field: "loc", text: I.loc, dur: 3.0 },
     ] },
+
+  // [사용자 2026-11-01] 새 템플릿
+  monologue: { ...base, id: "monologue", name: "혼잣말 자막", format: "혼잣말",
+    desc: "한마디·자막 더 넣기 줄을 장면마다 한 줄씩, 화면 가운데에 크게 (예: 이거 하나 먹으려고)",
+    look: {
+      caption: { font: "heavy", size: 90, y: 0.50 },
+      end: { font: "gothic", firstFont: "heavy" },
+    },
+    // 자막 더 넣기 줄이 없으면 메뉴·가격·위치를 같은 모양으로
+    beats: I => (I.lines || []).length ? [{ kind: "extra", dur: 2.0 }] : [
+      { kind: "caption", field: "menu", text: I.menu && `[${I.menu}]`, dur: 2.0 },
+      { kind: "caption", field: "price", text: I.price, dur: 2.0 },
+      { kind: "caption", field: "loc", text: I.loc, dur: 2.0 },
+    ] },
+
+  regionBig: { ...base, id: "regionBig", name: "지역 크게", format: "지역 강조",
+    desc: "지역 이름을 화면 위쪽에 가장 크게(명조), 영어 지역명을 작게 함께 (켜면)",
+    look: {
+      title: { font: "serif", size: 150, y: 0.17, sub: 56, subFont: "serif" },
+      caption: { font: "gothic", size: 80, y: 0.64 },
+      end: { font: "gothic", firstFont: "serif" },
+    },
+    title: I => ({ main: lastWord(I.area) || I.name, sub: I.areaEn || "" }),
+    beats: I => [
+      { kind: "caption", field: "name", text: I.name && `[${I.name}]`, dur: 2.5 },
+      { kind: "caption", field: "menu", text: I.menu && `[${I.menu}]`, dur: 2.5 },
+      { kind: "caption", field: "price", text: I.price, dur: 2.5 },
+      { kind: "extra", dur: 2.5 },
+      { kind: "caption", field: "loc", text: I.loc, dur: 2.5 },
+    ] },
 };
 
 export const DEFAULT_FOOD_TEMPLATE = "mukbang";
@@ -197,7 +227,8 @@ export function autoFoodTemplate(clips, info, last = []) {
   cands.push("mukbang");
   if (info.price) cands.push("price");
   if (info.hook) cands.push("declare", "regular");
-  if ((info.lines || []).length) cands.push("storefront");
+  if ((info.lines || []).length) cands.push("storefront", "monologue");
+  if (info.area) cands.push("regionBig");
   cands.push("save", "info", "diary", "sizzle");
   const fresh = cands.filter(c => !last.includes(c));
   return (fresh[0] || cands[0]);

@@ -33,6 +33,10 @@
 
 ## 효과음
 - pop·whoosh·ding: 비플리가 ffmpeg 소리 합성으로 직접 만든 소리 (외부 음원 아님)
+- click(딸깍)·bloop(뾰롱)·sizzle(지글) — 글자 효과음: 2026-11-01 비플리가 ffmpeg 소리 합성으로 직접 만든 소리 (외부 음원 아님, 상업용 사용 가능). 기록: `assets/sfx/출처.txt`
+
+## 스티커
+- 손그림 화살표·동그라미·불꽃: 비플리 코드(`web/lib/fx.js`)가 직접 그리는 모양 (외부 그림·이모지 글꼴 아님)
 
 ## 사이트판에만 들어가는 부품 (브라우저에서 실행)
 - **ffmpeg.wasm** — `@ffmpeg/core` 0.12.10 (FFmpeg 를 브라우저용으로 옮긴 것, `--enable-gpl` 빌드, libx264·libass 등 포함 → **GPL**), `@ffmpeg/ffmpeg` 0.12.15·`@ffmpeg/util` 0.12.2 (MIT)

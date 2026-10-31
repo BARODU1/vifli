@@ -1,6 +1,9 @@
 // 사이트판 화면 — 설치판 ui/index.html 과 같은 칸·같은 말. 서버 없이 이 기기 안에서 만들기.
 import { openMedia, analyze, thumbOf } from "./lib/media.js";
-import { makeVideo, KINDS, prepare } from "./lib/make.js";
+import { makeVideo, KINDS, prepare, TEXT_SFX } from "./lib/make.js";
+import { MOTIONS, TRANSITIONS, PHOTO_MOTIONS, STICKERS, STICKER_POS_NAMES } from "./lib/fx.js";
+import { TEXT } from "../config/standards.mjs";
+import { romanize } from "../engine/romanize.mjs";
 import { FONTS } from "../engine/fonts.mjs";
 
 const $ = id => document.getElementById(id);
@@ -41,6 +44,8 @@ function setKind(k) {
   FIELDS.forEach(f => { $("l_" + f).textContent = U[f][0]; $("i_" + f).placeholder = U[f][1]; $("i_" + f).value = ""; });
   try { const s = JSON.parse(store.get("vifli.info." + k) || "{}"); FIELDS.forEach(f => { if (s[f]) $("i_" + f).value = s[f]; }); } catch {}
   $("i_lines").placeholder = U.lines; drawEmHint();
+  $("areaEnBox").style.display = k === "food" ? "" : "none"; $("splitBox").style.display = $("lineBox").style.display = k === "studio" ? "" : "none";
+  areaEnEdited = false; $("i_areaEn").value = autoAreaEn();
   chosen = ["auto"]; drawChosen(); drawClips(); clearResults();
   // 다른 탭 곡이 골라져 있으면 뺌 (맛집에 가족사진 곡이 남지 않게)
   if (bgm && !bgm.mine && !(bgm.tabs || []).includes(k)) $("bgmClear").click();
@@ -78,6 +83,22 @@ $("pgrid").onclick = e => {
   else { chosen = [id]; $("picker").classList.remove("on"); drawChosen(); }
 };
 $("multi").onchange = () => { if (!$("multi").checked) chosen = chosen.slice(0, 1); drawChosen(); };
+// 편집 효과 칸 (기본: 컷 움직임 끔, 글자 튀어나오기, 전환 없음, 효과음 끔)
+const opts = (o, def) => Object.entries(o).map(([v, l]) => `<option value="${v}" ${v === def ? "selected" : ""}>${l}</option>`).join("");
+$("fx_motion").innerHTML = opts(MOTIONS, "none");
+$("fx_photo").innerHTML = opts(PHOTO_MOTIONS, "auto");
+$("fx_enter").innerHTML = opts(TEXT.enters, "pop");
+$("fx_trans").innerHTML = opts(TRANSITIONS, "none");
+$("fx_sfx").innerHTML = opts({ off: "끔", ...Object.fromEntries(Object.entries(TEXT_SFX).map(([k, v]) => [k, v.name])) }, "off");
+for (const id of ["fx_motion", "fx_photo", "fx_enter", "fx_trans", "fx_sfx", "fx_split", "fx_line"]) { const v = store.get("vifli." + id); if (v && [...$(id).options].some(o => o.value === v)) $(id).value = v; $(id).addEventListener("change", () => store.set("vifli." + id, $(id).value)); }
+$("sfxTry").onclick = e => { e.preventDefault(); const k = $("fx_sfx").value; if (TEXT_SFX[k]) new Audio(`../assets/sfx/${k}.wav`).play(); };
+// 영어 지역명: 지역 칸의 마지막 낱말을 자동으로 바꿔 채움 (사장님이 고쳐 쓰면 그대로 둠)
+let areaEnEdited = false;
+const autoAreaEn = () => romanize($("i_area").value.trim().split(/\s+/).pop() || "");
+$("i_areaEn").oninput = () => { areaEnEdited = !!$("i_areaEn").value.trim(); };
+$("i_area").addEventListener("input", () => { if (!areaEnEdited) $("i_areaEn").value = autoAreaEn(); });
+function drawBeat() { $("fx_beat").disabled = !bgm; $("beatHint").textContent = bgm ? "음악의 박자를 재서 컷 바뀌는 때를 가까운 박자로 옮겨요" : "4번 칸에서 배경음악을 고르면 쓸 수 있어요"; if (!bgm) $("fx_beat").checked = false; }
+
 // 글씨 스타일·강조색은 이 브라우저에 기억
 for (const id of ["textStyle", "accent"]) { const v = store.get("vifli." + id); if (v && [...$(id).options].some(o => o.value === v)) $(id).value = v; $(id).addEventListener("change", () => store.set("vifli." + id, $(id).value)); }
 $("font").innerHTML = `<option value="template">템플릿대로</option>` + Object.entries(FONTS).map(([id, f]) => `<option value="${id}">${f.label}</option>`).join("");
@@ -118,6 +139,9 @@ function drawClips() {
         <label style="margin:0">이 장면 글자 <select data-cap="${i}">
           ${[["auto", "자동"], ["none", "글자 없음"], ["name", KIND_UI[KIND].nameCap], ["menu", KIND_UI[KIND].menuCap], ["price", "가격"], ["loc", "위치"], ["hook", "한마디"]].map(([v, l]) => `<option value="${v}" ${c.caption === v ? "selected" : ""}>${l}</option>`).join("")}
         </select></label>
+        ${c.m.kind === "video" ? `<label style="margin:0">속도 <select data-speed="${i}">${[["0.5", "0.5배"], ["1", "1배"], ["1.5", "1.5배"]].map(([v, l]) => `<option value="${v}" ${String(c.speed || 1) === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>` : ""}
+        <label style="margin:0">스티커 <select data-st="${i}">${Object.entries(STICKERS).map(([v, l]) => `<option value="${v}" ${(c.sticker?.type || "none") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        ${c.sticker?.type && c.sticker.type !== "none" ? `<label style="margin:0">위치 <select data-stpos="${i}">${Object.entries(STICKER_POS_NAMES).map(([v, l]) => `<option value="${v}" ${(c.sticker.pos || "tr") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>` : ""}
         ${c.m.width > c.m.height ? `<label style="margin:0">가로 넣기 <select data-fit="${i}">
           <option value="auto" ${c.fit === "auto" ? "selected" : ""}>템플릿대로</option>
           <option value="fill" ${c.fit === "fill" ? "selected" : ""}>잘라서 채우기</option>
@@ -139,6 +163,9 @@ $("clips").onchange = e => {
   if (d.fit != null) clips[+d.fit].fit = e.target.value;
   if (d.cap != null) clips[+d.cap].caption = e.target.value;
   if (d.role != null) clips[+d.role].role = e.target.value;
+  if (d.speed != null) clips[+d.speed].speed = +e.target.value;
+  if (d.st != null) { const c = clips[+d.st]; c.sticker = { type: e.target.value, pos: c.sticker?.pos || "tr" }; drawClips(); }
+  if (d.stpos != null) clips[+d.stpos].sticker.pos = e.target.value;
 };
 $("i_vol").oninput = () => $("volv").textContent = $("i_vol").value + "%";
 
@@ -184,7 +211,7 @@ function useTrack(t) {
   $("bgmName").textContent = `${t.title}${t.duration ? ` (${mmss(t.duration)})` : ""}`; $("bgmClear").style.display = "inline";
   $("bgmSet").style.display = "block"; $("bgmStart").value = "0:00";
   $("bgmCreditBox").style.display = t.attribution ? "block" : "none";
-  player.pause(); $("musicBox").classList.remove("on");
+  player.pause(); $("musicBox").classList.remove("on"); drawBeat();
 }
 $("ownMusicBtn").onclick = () => $("ownMusic").click();
 $("ownMusic").onchange = () => {
@@ -194,7 +221,7 @@ $("ownMusic").onchange = () => {
   a.onloadedmetadata = () => { t.duration = a.duration; if (bgm === t) useTrack(t); };
   useTrack(t); $("ownMusic").value = "";
 };
-$("bgmClear").onclick = e => { e.preventDefault(); bgm = null; $("bgmName").textContent = "없음"; $("bgmClear").style.display = "none"; $("bgmSet").style.display = "none"; player.pause(); };
+$("bgmClear").onclick = e => { e.preventDefault(); bgm = null; setTimeout(drawBeat); $("bgmName").textContent = "없음"; $("bgmClear").style.display = "none"; $("bgmSet").style.display = "none"; player.pause(); };
 $("bgmVol").oninput = () => { $("bgmVolV").textContent = $("bgmVol").value + "%"; };
 $("bgmTry").onclick = () => {
   if (!bgm) return;
@@ -217,10 +244,11 @@ let results = [];
 function show(r) {
   $("player").innerHTML = `<video src="${URL.createObjectURL(r.video)}" controls autoplay playsinline></video>`;
   const c = r.check;
-  $("check").innerHTML = `길이 <b>${c.duration}초</b> · 컷 <b>${c.plannedShots}개</b> · 소리 <b>${c.lufs} LUFS</b> ${c.lufsOk ? '<span class="ok">✓</span>' : '<span class="bad">확인 필요</span>'}<br>
+  $("check").innerHTML = `길이 <b>${c.duration}초</b> · 컷 <b>${c.plannedShots}개</b> · ${c.lufs != null && c.lufs < -60 ? '소리 <b>없음</b> <span class="bad">사진만 넣었으면 4번 칸에서 배경음악을 골라 주세요</span>' : `소리 <b>${c.lufs} LUFS</b> ${c.lufsOk ? '<span class="ok">✓</span>' : '<span class="bad">확인 필요</span>'}`}<br>
     자막 가장 아래 ${c.textBottomPx ?? "-"}px / 금지선 ${c.bottomFifthFrom}px ${c.bottomFifthOk ? '<span class="ok">✓ 아래 1/5 비움</span>' : '<span class="bad">침범!</span>'}<br>
     자막 가장 위 ${c.textTopPx ?? "-"}px / 금지선 ${c.topFrom}px ${c.topOk ? '<span class="ok">✓ 위 15% 비움</span>' : '<span class="bad">침범!</span>'}<br>
     글자 크기 ${c.captionMinPx == null ? "장면 자막 없음" : `장면 자막 가장 작은 것 ${c.captionMinPx}px`} ${c.captionSizeOk ? '<span class="ok">✓ OK</span>' : `<span class="bad">작음 (${c.captionWarnBelow}px 미만)</span>`}${c.firstTitle ? ` · 첫 화면 제목 ${c.firstTitle.sizePx}px, 0~${c.firstTitle.end}초${c.firstTitle.sizePx < 120 ? ' <span class="hint">(한마디가 길어 줄였어요 — 한 줄 10자 안쪽으로 쓰면 120px 넘게 나와요)</span>' : ""}` : ""}<br>
+    ${c.stickersOk === false ? '<span class="bad">스티커가 금지 구역에 걸려요</span><br>' : ""}${c.stickerOverText ? `<span class="bad">스티커가 자막을 가리는 장면 ${c.stickerOverText}곳 — 스티커 위치를 바꿔 보세요</span><br>` : ""}${c.effects ? `<span class="hint">효과: 컷 움직임 ${MOTIONS[c.effects.motion] || "끔"} · 사진 컷 ${PHOTO_MOTIONS[c.effects.photoMotion] || "끔"} · 글자 ${TEXT.enters[c.effects.enter] || ""} · 전환 ${TRANSITIONS[c.effects.transition] || "없음"} · 효과음 ${TEXT_SFX[c.effects.textSfx]?.name || "끔"}${c.effects.beat ? ` · 박자 ${c.effects.beat.bpm} BPM, 맞춘 컷 ${c.effects.beat.moved}곳` : ""}${c.effects.stickers ? ` · 스티커 ${c.effects.stickers}개` : ""}</span><br>` : ""}
     원본 파일 <span class="ok">✓ 그대로</span> <span class="hint">(읽기만 함)</span>` +
     (results.length > 1 ? `<div class="results"><b>만든 영상 ${results.length}개</b> (눌러서 보기)` + results.map((x, k) => `<a href="#" data-k="${k}">▶ ${esc(x.name)} — ${x.check.duration}초 · ${x.check.lufs} LUFS ${x.check.bottomFifthOk && x.check.topOk && x.check.captionSizeOk ? "✓" : "⚠"}</a>`).join("") + "</div>" : "");
   $("thumbs").innerHTML = r.thumbs.map(t => `<img src="${URL.createObjectURL(t.blob)}" title="${esc(t.name)}">`).join("");
@@ -245,6 +273,7 @@ $("make").onclick = async () => {
     if (clips.some(c => c.loading)) throw new Error("재료를 아직 살펴보는 중이에요. 잠깐만 기다려 주세요.");
     if (!info.name) throw new Error(`3번 칸에 ${KIND_UI[KIND].nameCap}을 넣어 주세요.`);
     info.lines = $("i_lines").value;
+    info.areaEn = KIND === "food" && $("fx_areaEn").checked ? $("i_areaEn").value.trim() : "";
     const use = clips.filter(c => !c.error && c.a);
     if (!use.length) throw new Error("열 수 있는 영상·사진이 없어요.");
     busy = true; $("make").disabled = true; logText = ""; $("log").textContent = ""; $("check").innerHTML = ""; $("thumbs").innerHTML = ""; $("dl").innerHTML = ""; results = [];
@@ -253,7 +282,8 @@ $("make").onclick = async () => {
       start: secOf($("bgmStart").value), fade: Math.max(0, +$("bgmFade").value || 0), source: bgm.source + (bgm.license && bgm.license !== bgm.source ? ` (${bgm.license})` : "") + (bgm.page ? " " + bgm.page : ""), credit: bgm.attribution ? bgm.credit : "" } : null;
     for (let i = 0; i < chosen.length; i++) {
       const tname = tplOf(chosen[i]).name, pre = chosen.length > 1 ? `[${i + 1}/${chosen.length} ${tname}] ` : "";
-      const r = await makeVideo({ kind: KIND, clips: use.map(c => ({ m: c.m, a: c.a, hero: c.hero, fit: c.fit, caption: c.caption, role: c.role })),
+      const r = await makeVideo({ kind: KIND, clips: use.map(c => ({ m: c.m, a: c.a, hero: c.hero, fit: c.fit, caption: c.caption, role: c.role, speed: c.speed, sticker: c.sticker })),
+        motion: $("fx_motion").value, photoMotion: $("fx_photo").value, enter: $("fx_enter").value, transition: $("fx_trans").value, textSfx: $("fx_sfx").value, beatSync: $("fx_beat").checked, splitCount: +$("fx_split").value, linePos: $("fx_line").value,
         info, template: chosen[i], font: $("font").value, textStyle: $("textStyle").value, accent: $("accent").value, origVolume: +$("i_vol").value / 100, bgm: bgmJob },
         (m, p) => log(pre + m, (i + (p ?? 0)) / chosen.length));
       results.push(r); show(r);
@@ -265,6 +295,6 @@ $("make").onclick = async () => {
 };
 $("copyLog").onclick = async () => { await navigator.clipboard.writeText(logText || "(기록 없음)"); $("copyLog").textContent = "✓ 복사됨"; setTimeout(() => $("copyLog").textContent = "📋 기록 복사", 1500); };
 
-setKind("food");
+setKind("food"); drawBeat();
 // 부품(ffmpeg·글꼴)을 미리 받아 둠 — 처음 만들기를 빠르게
 if (!lacks.length) setTimeout(() => prepare().catch(() => {}), 500);

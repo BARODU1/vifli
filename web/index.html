@@ -127,6 +127,22 @@ video{width:100%;max-height:560px;background:#000;border-radius:12px;display:blo
   </div>
 
   <div class="card">
+    <h2><span class="n">✦</span>편집 효과 <span class="hint" style="font-weight:400">— 모두 은은하게, 한 번만. 안 바꾸면 지금처럼 나와요</span></h2>
+    <div class="grid2">
+      <div><label>컷 움직임 <span class="hint">(모든 컷)</span></label><select id="fx_motion"></select></div>
+      <div><label>사진 컷 움직임 <span class="hint">(사진으로 된 컷만)</span></label><select id="fx_photo"></select></div>
+      <div><label>글자 등장</label><select id="fx_enter"></select></div>
+      <div><label>장면 전환</label><select id="fx_trans"></select></div>
+      <div><label>글자 효과음 <a href="#" id="sfxTry" class="hint" style="margin-left:6px">▶ 들어 보기</a></label><select id="fx_sfx"></select></div>
+      <div><label><input type="checkbox" id="fx_beat"> 컷을 배경음악 박자에 맞추기</label><div class="hint" id="beatHint">4번 칸에서 배경음악을 고르면 쓸 수 있어요</div></div>
+      <div id="areaEnBox"><label><input type="checkbox" id="fx_areaEn"> 영어 지역명 넣기 <span class="hint">('지역 크게' 템플릿)</span></label><input type="text" id="i_areaEn" placeholder="지역을 쓰면 자동으로 채워져요 (고쳐 써도 돼요)"></div>
+      <div id="splitBox" style="display:none"><label>분할 화면 칸 수 <span class="hint">('분할 화면')</span></label><select id="fx_split"><option value="2">2칸</option><option value="3" selected>3칸</option><option value="4">4칸</option></select></div>
+      <div id="lineBox" style="display:none"><label>한 줄 위치 <span class="hint">('감성 한 줄')</span></label><select id="fx_line"><option value="top">위</option><option value="middle">가운데</option><option value="bottom" selected>아래</option></select></div>
+    </div>
+    <div class="hint" style="margin-top:8px">장면마다 속도(0.5·1·1.5배)와 스티커(화살표·동그라미·불꽃)는 1번 칸 재료 목록에서 골라요.</div>
+  </div>
+
+  <div class="card">
     <h2><span class="n">3</span><span id="infoTitle">가게 정보</span> <span class="hint" style="font-weight:400">— 입력한 것만 자막에 나와요 (사실만 적어 주세요)</span></h2>
     <div class="grid2">
       <div><label id="l_area">지역</label><input type="text" id="i_area"></div>

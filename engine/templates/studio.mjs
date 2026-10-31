@@ -27,7 +27,7 @@ const endList = I => [
   { text: I.outro, size: 58, gapBefore: 30 },
 ].filter(l => l.text && l.text !== "[]");
 
-const base = { kind: "studio", mode: "cuts", landscape: "fill", resultFit: "frame", shot: STUDIO.shot.default, length: STUDIO.length.target,
+const base = { kind: "studio", firstTitleY: HOOKY, mode: "cuts", landscape: "fill", resultFit: "frame", shot: STUDIO.shot.default, length: STUDIO.length.target,
   volume: 1, endCard: endCenter, minCaption: 0, maxResults: 2, /* 컷형은 결과 2장(3.6초) → 공간 컷이 7장쯤 남게 */ sfx: { hook: "whoosh", end: "ding" } }; // 사진관 릴스는 자막마다 '톡' 소리를 안 씀(글자 적게)
 const lowCap = { font: "gothic", size: CAP, y: CAPY, stroke: 0.1 };
 const endLook = (font, first) => ({ font, firstFont: first || font, y: 0.72 });
@@ -118,21 +118,43 @@ export const STUDIO_TEMPLATES = {
       { kind: "extra", dur: 2.5 },
       { kind: "caption", field: "loc", text: I.loc, dur: 2.5 },
     ] },
+
+  // [사용자 2026-11-01] 새 템플릿 — split·swipe 는 사이트판 굽기만 됨(siteOnly)
+  split: { ...base, id: "split", name: "분할 화면", mode: "split", siteOnly: true, splitCount: 3, splitStep: 0.6, splitHold: 1.0, format: "분할",
+    desc: "화면을 2·3·4칸으로 나눠 사진이 한 칸씩 차례로 → 마지막에 결과 사진 한 장 크게",
+    look: { caption: lowCap, end: endLook("gothic", "heavy") },
+    beats: () => [] },
+
+  oneLine: { ...base, id: "oneLine", name: "감성 한 줄", quietHook: true, shot: STUDIO.shot.max, format: "감성 한 줄",
+    desc: "글자 최소 — 한마디(없으면 사진관 이름) 한 줄만 작게, 명조. 위치(위·가운데·아래)를 고를 수 있음",
+    linePosY: { top: 0.18, middle: 0.5, bottom: 0.74 },
+    look: { title: { font: "serif", size: 60, y: 0.74, sub: 0 }, caption: lowCap, end: endLook("serif") },
+    title: I => ({ main: I.hook || I.name }),
+    titleUntil: 99,
+    beats: () => [] },
+
+  swipe: { ...base, id: "swipe", name: "보정 전후", mode: "swipe", siteOnly: true, swipeDur: 0.8, swipeHold: 0.9, format: "보정 전후 쓸어 넘기기",
+    desc: "'보정 전'·'보정 후'로 표시한 사진을 손으로 쓸어 넘기듯 0.8초에 비교",
+    look: { caption: { ...lowCap, y: 0.80 }, end: endLook("gothic", "heavy") },
+    beats: () => [] },
 };
 
 export const DEFAULT_STUDIO_TEMPLATE = "tour";
 
 /** '자동': 영상이 있고 결과 사진이 있으면 원테이크 공개 → 결과 사진이 많으면 결과 먼저·앨범 → … (다시 누르면 다른 것) */
-export function autoStudioTemplate(clips, info, last = []) {
+export function autoStudioTemplate(clips, info, last = [], { site = false } = {}) {
   const res = clips.filter(c => c.role === "result" || c.role === "after").length;
   const vid = clips.some(c => c.kind === "video");
   const cands = [];
+  // 사이트판만: 보정 전·후를 표시했으면 쓸어 넘기기, 사진이 많으면 분할 화면
+  if (site && clips.some(c => c.role === "before") && clips.some(c => c.role === "after")) cands.push("swipe");
   if (vid && res) cands.push("oneTake");
+  if (site && clips.filter(c => c.kind === "photo").length >= 4) cands.push("split");
   if (res >= 3) cands.push("resultFirst", "album");
   if (clips.some(c => c.role === "before")) cands.push("pairs");
   cands.push("tour", "pov");
   if (info.price || info.loc) cands.push("info", "save");
-  if (info.hook || (info.lines || []).length) cands.push("hand");
+  if (info.hook || (info.lines || []).length) cands.push("hand", "oneLine");
   cands.push("fast", "pairs");
   const fresh = cands.filter(c => !last.includes(c));
   return fresh[0] || cands[0];

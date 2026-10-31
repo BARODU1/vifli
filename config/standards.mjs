@@ -84,6 +84,7 @@ export const TEXT = {
   styles: { box: "상자", outline: "흰 글씨 + 검정 테두리", shadow: "흰 글씨 + 진한 그림자" }, // 글씨 스타일 (기본 outline)
   outlinePx: 8,                                      // ② 테두리 두께 8px
   accents: { yellow: "#FFE34D", red: "#FF3B30", white: "#FFFFFF" }, // 강조 색 고르기 (기본 노랑)
+  enters: { pop: "튀어나오기 (0.2초, 1.1→1배)", type: "한 글자씩 타자", slide: "아래에서 밀려 올라오기" }, // [사용자 2026-11-01] 글자 등장 (한 번만, 기본 pop)
 };
 
 // 가로 영상 넣는 법 — 템플릿마다 기본값을 정함 (templates 쪽에서 fit 값으로 고름)

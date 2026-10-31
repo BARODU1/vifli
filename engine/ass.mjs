@@ -124,11 +124,33 @@ export function dialogue(start, end, o, st, layer = 1) {
     : Math.max(st.stroke === 0 ? 0 : 2, Math.round(o.size * (st.stroke ?? 0.1)));
   const shad = st.shadow ?? 0;
   const shadA = st.textStyle === "shadow" ? "\\4a&H20&" : "";
-  const anim = st.pop === false ? "" : `\\fscx82\\fscy82\\t(0,130,\\fscx100\\fscy100)\\fad(60,0)`;
-  const outline = box ? `\\3c${ass(st.box, st.boxAlpha ?? 0x50)}\\3a&H${(st.boxAlpha ?? 0x50).toString(16).padStart(2, "0")}&` : `\\3c${ass(st.strokeColor || TEXT.color.stroke)}`;
+  // 글자 등장 (한 번만): pop 튀어나오기 0.2초 1.1→1배 / slide 아래에서 밀려 올라오기 / type 한 글자씩. 말하는 영상은 예전 그대로
+  const enter = st.pop === false ? "none" : st.enter || "legacy";
+  const anim = enter === "pop" ? `\\fscx110\\fscy110\\t(0,200,\\fscx100\\fscy100)\\fad(60,0)` : enter === "slide" ? `\\fad(100,0)` : enter === "legacy" ? `\\fscx82\\fscy82\\t(0,130,\\fscx100\\fscy100)\\fad(60,0)` : "";
+  const place = enter === "slide" ? `\\move(${W / 2},${o.y + Math.round(o.size * 0.6)},${W / 2},${o.y},0,250)` : `\\pos(${W / 2},${o.y})`;
+  const boxA = (st.boxAlpha ?? 0x50).toString(16).padStart(2, "0").toUpperCase();
+  const outline = box ? `\\3c${ass(st.box, st.boxAlpha ?? 0x50)}\\3a&H${boxA}&` : `\\3c${ass(st.strokeColor || TEXT.color.stroke)}`;
   const style = box ? "Box" : "Base";
-  const body = colorize(withFallback(o.text, key), color, accent, st.textStyle ? o.size : 0).replace(/\[/g, "").replace(/\]/g, "");
-  return `Dialogue: ${layer},${ts(start)},${ts(end)},${style},,0,0,0,,{\\an5\\pos(${W / 2},${o.y})\\fn${fontName(key)}\\fs${o.size}\\bord${bord}\\shad${shad}\\4c&H000000&${shadA}\\c${ass(color)}${outline}${anim}}${body}`;
+  let body = colorize(withFallback(o.text, key), color, accent, st.textStyle ? o.size : 0).replace(/\[/g, "").replace(/\]/g, "");
+  if (enter === "type") body = typeOn(body, { a3: box ? boxA : "00", a4: st.textStyle === "shadow" ? "20" : "00" });
+  return `Dialogue: ${layer},${ts(start)},${ts(end)},${style},,0,0,0,,{\\an5${place}\\fn${fontName(key)}\\fs${o.size}\\bord${bord}\\shad${shad}\\4c&H000000&${shadA}\\c${ass(color)}${outline}${anim}}${body}`;
+}
+
+/** 한 글자씩 나타나기: 글자마다 처음엔 투명 → 차례가 오면 보임 (전체 0.7초 안, 글자당 최대 0.06초) */
+function typeOn(body, { a3, a4 }) {
+  const parts = body.split(/(\{[^}]*\})/);
+  const n = parts.filter(p => !p.startsWith("{")).reduce((a, p) => a + [...p].filter(ch => ch !== " ").length, 0);
+  const step = Math.min(60, 700 / Math.max(1, n));
+  let j = 0, out = "";
+  for (const p of parts) {
+    if (p.startsWith("{")) { out += p; continue; }
+    for (const ch of p) {
+      if (ch === " ") { out += ch; continue; }
+      const t = Math.round(j++ * step);
+      out += `{\\1a&HFF&\\3a&HFF&\\4a&HFF&\\t(${t},${t + 1},\\1a&H00&\\3a&H${a3}&\\4a&H${a4}&)}${ch}`;
+    }
+  }
+  return out;
 }
 
 /** 템플릿 look 에 글꼴 바꾸기(변형) 적용 */
@@ -143,14 +165,15 @@ export function styleOf(look, fontOverride) {
 
 /**
  * plan.texts + 템플릿 look → ASS 글과 글자 상자 목록(검사용)
- * opts: { font, textStyle: "outline"(기본)|"box"|"shadow", accent: "yellow"|"red"|"white" }
+ * opts: { font, textStyle: "outline"(기본)|"box"|"shadow", accent: "yellow"|"red"|"white", enter: "pop"(기본)|"type"|"slide", linePos: "top"|"middle"|"bottom" }
  * 글씨 크기는 TEXT 기준이 템플릿 값보다 먼저: 첫 화면 제목 120~160, 장면 자막 70~90, 정보 이름표 55~65. 위 15%·아래 1/5 금지.
  */
 export function buildAss(plan, tpl, opts = {}) {
   const F = opts.font;
   const S = TEXT.styles[opts.textStyle] ? opts.textStyle : "outline";
   const A = TEXT.accents[opts.accent] || null;
-  const sty = st => withTextStyle(st, S, A);
+  const E = TEXT.enters[opts.enter] ? opts.enter : "pop";
+  const sty = st => ({ ...withTextStyle(st, S, A), enter: E });
   const top = SAFE.topForbiddenTo;
   const ev = [], boxes = [];
   const push = (t, o, st, layer) => { ev.push(dialogue(t.start, t.end, o, st, layer)); boxes.push({ ...o, kind: t.kind, start: t.start, end: t.end }); };
@@ -160,7 +183,7 @@ export function buildAss(plan, tpl, opts = {}) {
     if (t.kind === "hook" && t.first) {
       // 첫 화면 제목('한마디'): 템플릿 큰 제목 글꼴(없으면 굵은 글꼴), 가운데 위쪽
       const st = sty(styleOf(look.hook || { font: "heavy", size: TEXT.firstTitle.size, y: TEXT.firstTitle.y }, F));
-      layoutLines(firstTitleLines(t.lines.join(" ")), H * (look.hook?.y ?? TEXT.firstTitle.y), pad(st), top).forEach(o => push(t, o, st, 2));
+      layoutLines(firstTitleLines(t.lines.join(" ")), H * (look.hook?.y ?? tpl.firstTitleY ?? TEXT.firstTitle.y), pad(st), top).forEach(o => push(t, o, st, 2));
     } else if (t.kind === "hook" && look.hook) {
       const st = sty(styleOf(look.hook, F));
       const sizes = st.lineScale || [0.8, 1];
@@ -173,7 +196,8 @@ export function buildAss(plan, tpl, opts = {}) {
     } else if (t.kind === "title" && look.title) {
       const st = sty(styleOf(look.title, F));
       const subSt = { ...st, font: look.title.subFont ? (F && F !== "template" ? F : look.title.subFont) : st.font, box: S === "box" ? (look.title.subBox ?? st.box) : null };
-      const L = layoutLines([{ text: t.main, size: Math.max(st.size, TEXT.labelRange.min) }, { text: t.sub, size: clamp(st.sub || 40, TEXT.labelRange) }].filter(x => x.text), H * st.y + st.size * 0.6, pad(st), top);
+      const ty = tpl.linePosY?.[opts.linePos] ?? st.y; // '감성 한 줄'은 위치를 고름
+      const L = layoutLines([{ text: t.main, size: Math.max(st.size, TEXT.labelRange.min) }, { text: t.sub, size: clamp(st.sub || 40, TEXT.labelRange) }].filter(x => x.text), H * ty + st.size * 0.6, pad(st), top);
       L.forEach((o, i) => push(t, o, { ...(i ? subSt : st), pop: false }, 0));
     } else if (t.kind === "end") {
       const st = sty(styleOf(look.end || { font: "gothic", size: 60 }, F));

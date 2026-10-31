@@ -5,6 +5,7 @@
 import { STUDIO } from "../../config/standards.mjs";
 import { windowScore } from "../score.mjs";
 import { pickWindows, placeTexts } from "../food/plan.mjs";
+import { snapShotsToBeats } from "../beats.mjs";
 
 const r2 = x => Math.round(x * 100) / 100;
 
@@ -33,7 +34,7 @@ const spread = (arr, n) => arr.length <= n ? arr : Array.from({ length: n }, (_,
  * @param info  { area, name, menu(=촬영 종류), price, loc, hook, lines }
  * @param tpl   STUDIO_TEMPLATES[x]
  */
-export function planStudio(clips, info, tpl) {
+export function planStudio(clips, info, tpl, opts = {}) {
   const total = tpl.length ?? STUDIO.length.target;
   const shotLen = tpl.shot ?? STUDIO.shot.default;
   const resLen = tpl.resultShot ?? STUDIO.resultShot;
@@ -58,6 +59,9 @@ export function planStudio(clips, info, tpl) {
   const take = mode === "oneTake" ? pickTake(clips, STUDIO.oneTake.maxTake) : null;
   if (mode === "oneTake" && !take) mode = "cuts"; // 영상이 없으면 컷 방식으로
   if (mode === "album" && !results.length) mode = "cuts";
+  const photos = idx.filter(i => clips[i].kind === "photo");
+  if (mode === "split" && photos.length < 2) mode = "cuts";
+  if (mode === "swipe" && !(befores.some(i => clips[i].kind === "photo") && idx.some(i => role(clips[i]) === "after" && clips[i].kind === "photo"))) mode = "cuts"; // 보정 전·후 표시가 없으면 컷으로
   const nRes = Math.min(results.length, tpl.maxResults ?? STUDIO.maxResults);
   const resPick = spread(results, nRes);
 
@@ -68,6 +72,30 @@ export function planStudio(clips, info, tpl) {
   } else if (mode === "album") {
     // 앨범: 결과 사진만, 한 장씩
     for (const i of spread(results, Math.max(1, Math.round((total - STUDIO.endCard) / resLen)))) add(i, 0, resLen, "result");
+  } else if (mode === "split") {
+    // 분할 화면: 2·3·4칸, 사진이 한 칸씩 차례로 → 칸이 다 차면 잠깐 보여 주고 → 다음 묶음. 마지막에 결과 사진 한 장 크게
+    const k = [2, 3, 4].includes(+opts.splitCount) ? +opts.splitCount : (tpl.splitCount || 3);
+    const step = tpl.splitStep || 0.6, hold = tpl.splitHold || 1.0;
+    const pool = [...results.filter(i => clips[i].kind === "photo"), ...photos.filter(i => !results.includes(i))];
+    // 첫 화면 한마디가 칸 속 얼굴을 가리지 않게, 맨 앞은 공간 사진·영상 한 컷(사람 없는 곳) 2초
+    const opener = [...spaces.filter(i => clips[i].kind === "photo"), ...spaces].find(i => !pool.slice(0, k).includes(i));
+    if (opener != null && info.hook) add(opener, clips[opener].kind === "video" ? pickWindows(clips[opener], 1, 2.0)[0] : 0, 2.0, "shot");
+    const groups = Math.max(1, Math.min(3, Math.floor(pool.length / k)));
+    for (let g = 0; g < groups; g++) {
+      const group = pool.slice(g * k, g * k + k);
+      if (group.length < 2) break;
+      add(group[0], 0, r2(step * group.length + hold), "split", { group, step, layout: group.length });
+    }
+    const last = resPick.length ? resPick[resPick.length - 1] : pool[0];
+    add(last, 0, resLen, "result");
+  } else if (mode === "swipe") {
+    // 보정 전후: 사장님이 '보정 전'·'보정 후'로 표시한 사진을 차례로 짝지어, 손으로 쓸어 넘기듯 0.8초에 바꿈
+    const isPhoto = i => clips[i].kind === "photo"; // 쓸어 넘기기는 사진끼리
+    const bs = befores.filter(isPhoto), afters = idx.filter(i => role(clips[i]) === "after" && isPhoto(i));
+    const n = Math.min(bs.length, afters.length, 4);
+    // 첫 화면 한마디가 보정 전 사진의 얼굴을 가리지 않게 맨 앞은 공간 한 컷 2초
+    if (info.hook && spaces.length) { const o = spaces.find(i => clips[i].kind === "photo") ?? spaces[0]; add(o, clips[o].kind === "video" ? pickWindows(clips[o], 1, 2.0)[0] : 0, 2.0, "shot"); }
+    for (let k = 0; k < n; k++) add(bs[k], 0, r2((tpl.swipeHold || 0.9) * 2 + (tpl.swipeDur || 0.8)), "swipe", { pair: [bs[k], afters[k]], swipe: tpl.swipeDur || 0.8, hold: tpl.swipeHold || 0.9 });
   } else if (mode === "pairs") {
     // 짝 보여 주기: 보정 전→후 (사장님이 표시했을 때) / 없으면 공간 → 결과 사진 번갈아
     const pairs = befores.length && results.length
@@ -97,12 +125,16 @@ export function planStudio(clips, info, tpl) {
   let t = 0;
   for (const s of shots) {
     const c = clips[s.clip];
-    if (c.kind === "video" && s.role !== "end") s.dur = Math.min(s.dur, r2(c.duration - s.start));
+    s.speed = c.kind === "video" && s.role !== "end" ? (c.speed || 1) : 1; // 장면마다 속도
+    if (c.kind === "video" && s.role !== "end") s.dur = Math.min(s.dur, r2((c.duration - s.start) / s.speed));
     s.at = r2(t); t += s.dur;
     s.file = c.file; s.kind = c.kind; s.fit = s.fitOverride || fitOf(c); s.hasAudio = c.hasAudio;
     delete s.fitOverride;
   }
-  const duration = r2(t);
+  // 박자 맞춤 (분할·보정 전후는 안의 움직임 시간이 정해져 있어 그 컷 길이는 안 바꿈)
+  const beatMoved = mode === "split" || mode === "swipe" ? 0 : snapShotsToBeats(shots, clips, opts.beats);
+  const lastShot = shots[shots.length - 1];
+  const duration = r2(lastShot.at + lastShot.dur);
   const endAt = shots[shots.length - 1].at;
 
   // 공간 이름표: 템플릿이 켜면, '이 장면 글자'가 자동인 공간 재료에 파일 이름(사장님이 붙인 이름)을 씀
@@ -113,8 +145,9 @@ export function planStudio(clips, info, tpl) {
     if (first && first.at >= (tpl.labelsFrom || 0) && (!c.caption || c.caption === "auto") && role(c) === "space" && roomLabel(c.file)) c.caption = "text:" + roomLabel(c.file);
   });
   // 보정 전·후 표시 (사장님이 정한 재료에만)
+  shots.forEach(s => { if (s.role === "swipe" && (!capClips[s.clip].caption || capClips[s.clip].caption === "auto")) capClips[s.clip].caption = "text:보정 전 → [보정 후]"; });
   shots.forEach(s => { if (s.tag && (!capClips[s.clip].caption || capClips[s.clip].caption === "auto")) capClips[s.clip].caption = "text:" + (s.tag === "before" ? "보정 전" : "[보정 후]"); });
   const { texts, sfx } = placeTexts(capClips, shots, info, tpl, endAt, duration);
   const first = shots[0];
-  return { template: tpl.id, duration, shots, texts, sfx, hero: { clip: first.clip, start: first.start }, mode };
+  return { template: tpl.id, duration, shots, texts, sfx, hero: { clip: first.clip, start: first.start }, mode, beatMoved };
 }
