@@ -1,6 +1,6 @@
 // 맛집 장면 엔진: 재료(분석 결과) + 가게 정보 + 템플릿 → 컷 목록·글자 장면·효과음 시간표
 // 숫자는 전부 config/standards.mjs 에서 가져옴.
-import { FOOD } from "../../config/standards.mjs";
+import { FOOD, TEXT } from "../../config/standards.mjs";
 import { windowScore } from "../score.mjs";
 
 const r2 = x => Math.round(x * 100) / 100;
@@ -99,24 +99,37 @@ export function placeTexts(clips, shots, info, tpl, endAt, duration) {
   // 5) 글자 장면
   //  ① 사장님이 컷에 직접 정한 글자("이 장면 글자": 메뉴·가격·위치·…)는 그 재료가 처음 나오는 때에 고정
   //  ② 나머지는 템플릿 대본(beats)을 앞에서부터 빈 시간에 깔기. 정보가 없는 칸은 건너뜀
-  const beats = expandBeats(tpl.beats(info), info);
+  //  ⓪ '한마디(첫 화면)'를 적었으면 템플릿과 상관없이 0초부터 크게 (TEXT.firstTitle — 최소 1.5초).
+  //     템플릿 대본에서 한마디를 쓰던 칸(큰 제목·한마디 자막)은 빼서 두 번 나오지 않게
+  let beats = expandBeats(tpl.beats(info), info);
   const texts = [], fixed = [];
+  let firstEnd = 0;
+  if (info.hook) {
+    const own = beats.find(b => b.kind === "hook" && b.lines.includes(info.hook));
+    firstEnd = r2(Math.min(endAt, Math.max(TEXT.firstTitle.until, own?.dur ?? TEXT.firstTitle.dur)));
+    texts.push({ kind: "hook", first: true, start: 0, end: firstEnd, lines: [info.hook] });
+    beats = beats.filter(b => b !== own && !(b.kind === "caption" && (b.field === "hook" || b.text === info.hook)));
+  }
   clips.forEach((c, i) => {
     if (!c.caption || c.caption === "auto") return;
     const mine = shots.filter(s => s.clip === i && s.role !== "end");
     if (!mine.length) return;
     const start = mine[0].at, span = mine.reduce((a, s) => a + s.dur, 0);
     if (c.caption === "none") { fixed.push({ start, end: start + span, none: true }); return; }
+    if (c.caption === "hook" && firstEnd) return; // 한마디는 이미 첫 화면에 나옴
     const text = c.caption.startsWith("text:") ? c.caption.slice(5) : (beats.find(b => b.field === c.caption)?.text || fieldText(info, c.caption));
     if (!text) return;
     fixed.push({ start, end: Math.min(start + Math.max(tpl.minCaption ?? 1.5, Math.min(3.5, span)), endAt), text, field: c.caption });
   });
+  // 첫 화면 제목 시간과 겹치는 정한 글자는 제목이 끝난 뒤로 미룸 (짧아지면 뺌)
+  for (const f of fixed) if (f.start < firstEnd) f.start = firstEnd;
+  for (let k = fixed.length - 1; k >= 0; k--) if (fixed[k].end - fixed[k].start < 0.8 && !fixed[k].none) fixed.splice(k, 1);
   // 정한 글자끼리 겹치면 앞 글자를 다음 글자 시작에서 끝냄 (같은 자리에 두 줄이 겹쳐 보이지 않게)
   fixed.sort((a, b) => a.start - b.start).forEach((f, k) => { const nx = fixed[k + 1]; if (nx && f.end > nx.start) f.end = nx.start; });
   const used = new Set(fixed.map(f => f.field));
   for (const f of fixed) if (!f.none) texts.push({ kind: "caption", start: r2(f.start), end: r2(f.end), lines: [f.text], fixed: true });
   const busy = (a, b) => fixed.find(f => a < f.end && b > f.start);
-  let cur = 0;
+  let cur = firstEnd;
   for (const b of beats) {
     if (cur >= endAt - 0.3) break;
     if (b.kind === "gap") { cur += b.dur; continue; }

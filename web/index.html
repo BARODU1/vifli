@@ -104,6 +104,7 @@ video{width:100%;max-height:560px;background:#000;border-radius:12px;display:blo
     <input type="file" id="files" multiple accept="video/mp4,video/quicktime,.mov,.mp4,image/*" style="display:none">
     <button class="btn" id="pick">📂 찾기 (여러 개 고르기)</button>
     <div class="drop" id="drop">또는 파일을 여기로 끌어다 놓으세요 · mp4 · mov · jpg · png</div>
+    <div id="readProg" class="hint" style="margin-top:8px;font-size:15px"></div>
     <div id="clips"></div>
     <div class="hint" id="clipHint" style="margin-top:8px"></div>
     <div class="hint" style="margin-top:6px">🔒 넣은 영상·사진은 <b>인터넷에 올라가지 않아요.</b> 이 기기 안에서만 읽어서 영상을 만들어요.</div>
@@ -115,6 +116,12 @@ video{width:100%;max-height:560px;background:#000;border-radius:12px;display:blo
       <button class="btn" id="openPicker">🖼 미리보기로 고르기</button>
       <label style="margin:0;font-size:15px;color:var(--ink)"><input type="checkbox" id="multi"> 여러 템플릿 한 번에 만들기</label>
       <label style="margin:0;font-size:15px;color:var(--ink)">글꼴 느낌 <select id="font" style="font-size:15px;padding:5px;border-radius:7px"></select></label>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px">
+      <label style="margin:0;font-size:15px;color:var(--ink)">글씨 스타일 <select id="textStyle" style="font-size:15px;padding:5px;border-radius:7px">
+        <option value="outline" selected>흰 글씨 + 검정 테두리</option><option value="box">상자</option><option value="shadow">흰 글씨 + 진한 그림자</option></select></label>
+      <label style="margin:0;font-size:15px;color:var(--ink)">[강조] 색 <select id="accent" style="font-size:15px;padding:5px;border-radius:7px">
+        <option value="yellow" selected>노랑</option><option value="red">빨강</option><option value="white">흰색</option></select></label>
     </div>
     <div class="chosen" id="chosen"></div>
   </div>
@@ -128,10 +135,11 @@ video{width:100%;max-height:560px;background:#000;border-radius:12px;display:blo
       <div><label id="l_price">가격</label><input type="text" id="i_price"></div>
       <div><label id="l_loc">위치 한 줄</label><input type="text" id="i_loc"></div>
       <div><label id="l_hook">한마디 (첫 화면)</label><input type="text" id="i_hook"></div>
+      <div><label id="l_outro">끝 문구 (마지막 화면 · 비우면 안 나와요)</label><input type="text" id="i_outro"></div>
     </div>
     <div style="margin-top:10px"><label>자막 더 넣기 (선택 · 한 줄에 하나 · 사실만, 최대 6줄)</label>
-      <textarea id="i_lines" rows="3" placeholder="예) 사장님이 직접 구워 주심&#10;예) 2층 단체석 있음"></textarea></div>
-    <div class="hint" style="margin-top:8px">[대괄호]로 감싼 글자는 노란색으로 강조돼요. 예) 지인이 데려간 [찐맛집]</div>
+      <textarea id="i_lines" rows="3"></textarea></div>
+    <div class="hint" style="margin-top:8px" id="emHint"></div>
   </div>
 
   <div class="card">
@@ -174,6 +182,7 @@ video{width:100%;max-height:560px;background:#000;border-radius:12px;display:blo
   <div class="top"><h2 style="margin:0">배경음악 고르기 <span class="hint">— 상업적으로 쓸 수 있는 곡만</span></h2><button class="btn" id="musicClose">닫기</button></div>
   <div class="note">🎵 <b>내 음악 파일 넣기</b>: 직접 가진 곡이나, 상업용 무료 음원 사이트(예: Pixabay 음악 — 'Content ID 등록' 표시가 없는 곡)에서 받은 mp3를 넣을 수 있어요. 파일은 이 기기 안에서만 쓰여요.
     <div style="margin-top:8px"><input type="file" id="ownMusic" accept="audio/*,.mp3,.m4a,.wav" style="display:none"><button class="btn" id="ownMusicBtn">＋ 내 음악 파일 넣기</button></div></div>
+  <div id="moods" style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap"></div>
   <div id="mlist" style="margin-top:10px"></div>
 </div></div>
 

@@ -25,7 +25,8 @@ export const SAFE = {
   bottomMargin: 24,           // [임시] 글자 상자 아랫변은 1536-24=1512px 위까지만 (테두리·그림자 여유)
   textBottomMax: 1512,        // = bottomForbiddenFrom - bottomMargin. 렌더 후 검사도 이 값으로 함
   sideMargin: 64,             // [임시] 양옆 64px. 넘치면 글자 크기를 줄임(시험판의 자동 축소 방식)
-  topUiFrom: 0, topUiTo: 96,  // [임시] 맨 위 96px은 인스타 상단 표시와 겹칠 수 있어 비워 둠
+  topUiFrom: 0, topUiTo: 96,  // [임시] 맨 위 96px은 인스타 상단 표시와 겹칠 수 있어 비워 둠 (말하는 영상)
+  topForbiddenTo: 290,        // [사용자 2026-11-01] 맛집·사진관: 위 15%(y<290)에 글자 금지. 렌더 후 검사도 이 값으로 함
   // 참고: [맛집14] 14개 중 12개가 아래 1/5에 글자가 한 줄 이상 있었음(배경 간판 포함, 전체 글자줄의 11%). 우리는 [사용자] 규칙대로 금지.
 };
 
@@ -75,6 +76,14 @@ export const TEXT = {
     strokeRatio: 0.2,    // [시험판] 테두리 두께 = 글자 크기×0.2
   },
   textOnScreenRatio: 0.85, // [맛집14] 글자가 보이는 화면 비율 가운데값 85% — 자막 없는 컷이 길게 이어지지 않게
+  // [사용자 2026-11-01] 글씨 크기 기준 (1080x1920). 템플릿 값보다 이 범위가 먼저
+  firstTitle: { size: 140, min: 120, max: 160, lines: 2, wrapChars: 10, until: 1.5, dur: 2.0, y: 0.40 }, // '한마디(첫 화면)': 0~1.5초에 반드시, 한 줄 10자 넘으면 줄바꿈 + 넓으면 크기 축소
+  captionRange: { min: 70, max: 90, warnBelow: 60 }, // 장면 자막 70~90px 1줄, 60px 미만이면 결과 칸에 '작음' 경고
+  labelRange: { min: 55, max: 65 },                  // 정보 이름표(메뉴·가격·위치 줄, 위 제목의 작은 줄)
+  emphasisScale: 1.15,                               // [대괄호] 강조 글자 크기 배율
+  styles: { box: "상자", outline: "흰 글씨 + 검정 테두리", shadow: "흰 글씨 + 진한 그림자" }, // 글씨 스타일 (기본 outline)
+  outlinePx: 8,                                      // ② 테두리 두께 8px
+  accents: { yellow: "#FFE34D", red: "#FF3B30", white: "#FFFFFF" }, // 강조 색 고르기 (기본 노랑)
 };
 
 // 가로 영상 넣는 법 — 템플릿마다 기본값을 정함 (templates 쪽에서 fit 값으로 고름)

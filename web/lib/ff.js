@@ -116,6 +116,19 @@ export async function renderSubs(assText, duration, fps = 30, tag = "s") {
 }
 
 /** 그림 속 글자가 닿은 가장 아래 줄 (투명이 아닌 칸, 1080x1920 기준 px) */
+/** 자막 그림들에서 글자가 칠해진 가장 위 줄(y) — 위 15% 검사용 */
+export function highestInk(bitmaps) {
+  const W = 1080, H = 1920, c = new OffscreenCanvas(W, H), g = c.getContext("2d", { willReadFrequently: true });
+  let min = H;
+  for (const b of bitmaps) {
+    if (!min) break;
+    g.clearRect(0, 0, W, H); g.drawImage(b, 0, 0);
+    const d = g.getImageData(0, 0, W, min).data;
+    for (let y = 0; y < min; y++) { let hit = false; for (let x = 0; x < W; x += 2) if (d[(y * W + x) * 4 + 3] > 8) { hit = true; break; } if (hit) { min = y; break; } }
+  }
+  return min >= H ? null : min;
+}
+
 export function lowestInk(bitmaps) {
   const W = 1080, H = 1920, c = new OffscreenCanvas(W, H), g = c.getContext("2d", { willReadFrequently: true });
   let max = -1;

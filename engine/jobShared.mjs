@@ -1,6 +1,6 @@
 // 맛집·사진관 만들기에서 설치판(job.mjs)과 사이트판(web)이 함께 쓰는 순수 계산 (node 기능 없음)
-import { layoutLines } from "./ass.mjs";
-import { CANVAS } from "../config/standards.mjs";
+import { layoutLines, ass } from "./ass.mjs";
+import { CANVAS, SAFE, TEXT } from "../config/standards.mjs";
 
 /** 입력한 정보 정리: 앞뒤 빈칸 빼기, '자막 더 넣기'는 한 줄에 하나·최대 6줄 */
 export function cleanInfo(raw = {}) {
@@ -9,12 +9,13 @@ export function cleanInfo(raw = {}) {
   return info;
 }
 
-/** 썸네일 3안 글자 (입력한 정보만) */
-export function thumbAss(lines) {
-  const L = layoutLines(lines, CANVAS.height * 0.46);
+/** 썸네일 3안 글자 (입력한 정보만). accent: TEXT.accents 의 이름 (기본 노랑) */
+export function thumbAss(lines, accent) {
+  const L = layoutLines(lines, CANVAS.height * 0.46, 0.6, SAFE.topForbiddenTo);
+  const ac = ass(TEXT.accents[accent] || TEXT.accents.yellow);
   const ev = L.map((o, i) => {
     const bord = Math.round(o.size * 0.12);
-    const t = o.text.replace(/\[([^\]]+)\]/g, "{\\c&H4DE3FF&}$1{\\c&HFFFFFF&}");
+    const t = o.text.replace(/\[([^\]]+)\]/g, `{\\c${ac}}$1{\\c&HFFFFFF&}`);
     return `Dialogue: 0,0:00:00.00,0:00:05.00,Base,,0,0,0,,{\\an5\\pos(540,${o.y})\\fnPretendard Black\\fs${o.size}\\bord${bord}\\shad3\\4c&H000000&}${t}`;
   });
   return ["[Script Info]", "ScriptType: v4.00+", "PlayResX: 1080", "PlayResY: 1920", "WrapStyle: 2", "ScaledBorderAndShadow: yes", "",

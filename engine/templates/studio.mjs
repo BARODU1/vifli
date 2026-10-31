@@ -17,13 +17,14 @@ const endCenter = I => [
   { text: [I.area, I.menu].filter(Boolean).join(" · "), size: 56 },
   { text: I.price, size: 52 },
   { text: I.loc, size: 50 },
+  { text: I.outro, size: 58, gapBefore: 30 }, // 끝 문구: 사장님이 적은 것만 (비면 안 나옴)
 ].filter(l => l.text && l.text !== "[]");
 const endList = I => [
   { text: `[${I.name}]`, size: 86 },
   { text: I.menu && `✓ 촬영  ${I.menu}`, size: 52, gapBefore: 16 },
   { text: I.price && `✓ 가격  ${I.price}`, size: 52 },
   { text: I.loc && `✓ 위치  ${I.loc}`, size: 52 },
-  { text: "[저장]해두고 예약하기", size: 58, gapBefore: 30 },
+  { text: I.outro, size: 58, gapBefore: 30 },
 ].filter(l => l.text && l.text !== "[]");
 
 const base = { kind: "studio", mode: "cuts", landscape: "fill", resultFit: "frame", shot: STUDIO.shot.default, length: STUDIO.length.target,

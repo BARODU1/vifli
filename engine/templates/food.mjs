@@ -8,19 +8,19 @@ const lastWord = s => String(s || "").trim().split(/\s+/).pop() || "";
 const RED = "#FF4B3A", YELLOW = TEXT.color.accent, WHITE = "#FFFFFF";
 const CAP = TEXT.caption.size, HOOK = TEXT.hook.size;
 
-// 마지막 정보 카드
+// 마지막 정보 카드 — 끝 문구(outro)는 사장님이 입력했을 때만. 고정 문구 없음
 const endCenter = I => [
   { text: `[${I.name}]`, size: 96 },
   { text: [I.menu, I.price].filter(Boolean).join(" "), size: 60 },
   { text: I.loc, size: 54 },
-  { text: "[저장]해두고 가봐", size: 66, gapBefore: 40 },
+  { text: I.outro, size: 66, gapBefore: 40 }, // 끝 문구: 사장님이 적은 것만 (비면 안 나옴)
 ].filter(l => l.text && l.text !== "[]");
 const endList = I => [
   { text: `[${I.name}]`, size: 92 },
   { text: I.menu && `✓ 메뉴  ${I.menu}`, size: 54, gapBefore: 20 },
   { text: I.price && `✓ 가격  ${I.price}`, size: 54 },
   { text: I.loc && `✓ 위치  ${I.loc}`, size: 54 },
-  { text: "[저장]해두고 가봐", size: 62, gapBefore: 40 },
+  { text: I.outro, size: 62, gapBefore: 40 },
 ].filter(l => l.text && l.text !== "[]");
 
 const base = { landscape: "fill", shot: FOOD.shot.default, length: FOOD.length.target, opener: "hero", volume: 1, endCard: endCenter };

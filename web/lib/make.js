@@ -8,10 +8,10 @@ import { STUDIO_TEMPLATES, DEFAULT_STUDIO_TEMPLATE, autoStudioTemplate } from ".
 import { FONTS, setFontBytes } from "../../engine/fonts.mjs";
 import { buildAss } from "../../engine/ass.mjs";
 import { cleanInfo, thumbAss, thumbPicks, thumbLines, captureTimes } from "../../engine/jobShared.mjs";
-import { CANVAS, AUDIO, LANDSCAPE, STUDIO, SAFE } from "../../config/standards.mjs";
+import { CANVAS, AUDIO, LANDSCAPE, STUDIO, SAFE, TEXT } from "../../config/standards.mjs";
 import { APP_NAME } from "../../config/app.mjs";
 import { decodeAt } from "./media.js";
-import { getFF, fontBytes, run, writeFile, readFile, rm, mkdir, mountFiles, renderSubs, lowestInk } from "./ff.js";
+import { getFF, fontBytes, run, writeFile, readFile, rm, mkdir, mountFiles, renderSubs, lowestInk, highestInk } from "./ff.js";
 
 export const KINDS = {
   food: { label: "맛집", templates: FOOD_TEMPLATES, def: DEFAULT_FOOD_TEMPLATE, auto: autoFoodTemplate, plan: planFood, nameLabel: "가게 이름" },
@@ -19,7 +19,10 @@ export const KINDS = {
 };
 const W = CANVAS.width, H = CANVAS.height, FPS = CANVAS.fps;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-export const safeName = s => String(s || "").replace(/[\\/:*?"<>|]+/g, "_").replace(/\s+/g, " ").trim().slice(0, 60) || "영상";
+export const safeName = s => String(s || "").replace(/[\\/:*?"<>|]+/g, "_").trim().replace(/\s+/g, "_").slice(0, 60) || "영상";
+/** 저장 이름: 가게(띄어쓰기는 _)_템플릿(띄어쓰기 없이)_월일 — 예) 테스트식당_저장유도_1101 */
+const fileName = (shop, tplName, fontLabel, d = new Date()) =>
+  [safeName(shop), safeName(tplName).replace(/_/g, ""), fontLabel && safeName(fontLabel).replace(/_/g, ""), String(d.getMonth() + 1).padStart(2, "0") + String(d.getDate()).padStart(2, "0")].filter(Boolean).join("_");
 
 let ready = null;
 /** ffmpeg·글꼴 준비 (처음 한 번, 약 25MB 받음) */
@@ -110,7 +113,7 @@ const extOf = n => (/\.(\w+)$/.exec(n)?.[1] || "bin").toLowerCase();
 let sfxReady = false;
 
 /**
- * @param job { kind, clips:[{m:openMedia 결과, a:analyze 결과, hero, fit, caption, role}], info, template, font, origVolume,
+ * @param job { kind, clips:[{m:openMedia 결과, a:analyze 결과, hero, fit, caption, role}], info, template, font, textStyle, accent, origVolume,
  *              bgm?:{ file:File|Blob, name, volume, start, fade, source, credit } }
  * @param log (msg, ratio) => void
  * @returns { name, video:Blob, thumbs:[{name,blob}], captures:{name,blob}, credits:{name,text}, check, plan, seconds }
@@ -131,9 +134,9 @@ export async function makeVideo(job, log = () => {}) {
   const font = job.font && job.font !== "template" && FONTS[job.font] ? job.font : null;
   const vol = (job.origVolume ?? 1) * (tpl.volume ?? 1);
   const plan = K.plan(clips, info, tpl);
-  const ass = buildAss(plan, tpl, { font });
+  const ass = buildAss(plan, tpl, { font, textStyle: job.textStyle, accent: job.accent });
   log(`장면 계획: ${plan.shots.length}컷, ${plan.duration}초, 첫 장면 ${clips[plan.hero.clip].name}`, 0.04);
-  const name = `${safeName(info.name)}_${tpl.name}${font ? "_" + FONTS[font].label : ""}`;
+  const name = fileName(info.name, tpl.name, font && FONTS[font].label);
 
   // 1) 자막 그림 (설치판과 같은 libass)
   log("자막 그리는 중", 0.05);
@@ -253,10 +256,16 @@ export async function makeVideo(job, log = () => {}) {
   const sum = e.slice(e.lastIndexOf("Summary:"));
   const gnum = re => { const mm = sum.match(re); return mm ? +mm[1] : null; };
   const dm = /Duration: (\d+):(\d+):([\d.]+)/.exec(e);
-  const lufs = gnum(/I:\s+(-?[\d.]+) LUFS/), bottom = lowestInk([...subs.bitmaps.values()]);
+  const lufs = gnum(/I:\s+(-?[\d.]+) LUFS/), bottom = lowestInk([...subs.bitmaps.values()]), topInk = highestInk([...subs.bitmaps.values()]);
+  // 글자 크기: 장면 자막(한 줄, 넓으면 줄어든 크기)이 60px 밑이면 경고
+  const capSizes = ass.boxes.filter(b => b.kind === "caption").map(b => b.size), capMin = capSizes.length ? Math.min(...capSizes) : null;
+  const first = plan.texts.find(x => x.first), firstBoxes = ass.boxes.filter(b => b.kind === "hook" && b.start === 0);
   const check = { duration: dm ? Math.round((+dm[1] * 3600 + +dm[2] * 60 + +dm[3]) * 100) / 100 : null, frames: n, plannedShots: plan.shots.length,
     lufs, peak: gnum(/Peak:\s+(-?[\d.]+) dBFS/), lufsOk: lufs != null && Math.abs(lufs - AUDIO.targetLufs) <= AUDIO.lufsTolerance,
-    textBottomPx: bottom, bottomFifthFrom: SAFE.bottomForbiddenFrom, bottomFifthOk: bottom == null || bottom <= SAFE.bottomForbiddenFrom };
+    textBottomPx: bottom, bottomFifthFrom: SAFE.bottomForbiddenFrom, bottomFifthOk: bottom == null || bottom <= SAFE.bottomForbiddenFrom,
+    textTopPx: topInk, topFrom: SAFE.topForbiddenTo, topOk: topInk == null || topInk >= SAFE.topForbiddenTo,
+    captionMinPx: capMin, captionWarnBelow: TEXT.captionRange.warnBelow, captionSizeOk: capMin == null || capMin >= TEXT.captionRange.warnBelow,
+    firstTitle: first ? { end: first.end, sizePx: Math.min(...firstBoxes.map(b => b.size)), lines: firstBoxes.map(b => b.text) } : null };
 
   // 6) 썸네일 3안 + 장면 6장
   log("썸네일 3안 만드는 중", 0.95);
@@ -264,7 +273,7 @@ export async function makeVideo(job, log = () => {}) {
   for (let k = 0; k < picks.length; k++) {
     const t = thumbBase.get(k); if (!t) continue;
     const tg = t.getContext("2d", { willReadFrequently: true }); eqDim(tg, -0.06);
-    const ts = await renderSubs(thumbAss(L[k]), 0.1, FPS, "t");
+    const ts = await renderSubs(thumbAss(L[k], job.accent), 0.1, FPS, "t");
     if (ts.keyOf[0]) tg.drawImage(ts.bitmaps.get(ts.keyOf[0]), 0, 0);
     thumbs.push({ name: `${name}_썸네일${"ABC"[k]}.jpg`, blob: await t.convertToBlob({ type: "image/jpeg", quality: 0.92 }) });
   }
